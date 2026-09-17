@@ -31,4 +31,9 @@ that repo holds.
   target links directly.
 - `core/tests/live_session.rs` is `#[ignore]`d and needs a real wlshare to talk
   to — see CLAUDE.local.md for the container and the tunnel that provide one.
+- **Packaging is one script.** `scripts/package-mac.sh` builds Release and makes
+  the drag-to-Applications `.dmg`, and `.github/workflows/release.yml` runs that
+  and nothing else before publishing `v<MARKETING_VERSION>`. A change to how the
+  app is packaged belongs in the script, never only in the workflow. Nothing is
+  Developer-ID signed or notarized; ad-hoc signing is deliberate, not a to-do.
 - Design and wire details live in `docs/architecture.md`, not here.

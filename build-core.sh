@@ -26,10 +26,9 @@ esac
 target=${WLSHARE_CORE_TARGET:-aarch64-apple-darwin}
 
 command -v cargo >/dev/null || { echo "cargo not found — install Rust" >&2; exit 1; }
-[ -d ../wlshare/crates/wlshare-rfb ] || {
-    echo "no sibling wlshare checkout at $(cd .. && pwd)/wlshare — the core's protocol crate lives there" >&2
-    exit 1
-}
+# Nothing checks for a sibling ../wlshare: wlshare-rfb is a pinned tag that cargo
+# fetches by itself, which is what lets a machine holding only this repo — a
+# release runner, say — build the app.
 
 echo "[core] cargo build --target $target ${flags[*]-}"
 (cd core && cargo build --target "$target" ${flags[@]+"${flags[@]}"})

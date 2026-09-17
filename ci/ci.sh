@@ -13,15 +13,19 @@
 # Jobs:
 #   core     the Rust core: cargo test, then clippy with warnings denied
 #   app      build the core for arm64 and build the app against it
+#   package  the Release build and the disk image a release ships
 #   live     the ignored session tests, against WLSHARE_TEST_SERVER
 #
 # `live` is not in the default set: it needs a wlshare to talk to, which on
-# this machine means a tunnel someone put there. Ask for it by name.
+# this machine means a tunnel someone put there. Ask for it by name. Nor is
+# `package`: it is a from-scratch Release build of what `app` has already
+# compiled, and only a release — or a check that the release will work — wants
+# it.
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-ALL_JOBS=(core app live)
+ALL_JOBS=(core app package live)
 DEFAULT_JOBS=(core app)
 
 usage() { echo "usage: $0 [--list] [${ALL_JOBS[*]}]" >&2; exit 2; }
@@ -71,6 +75,13 @@ job_app() {
         -destination 'platform=macOS,arch=arm64' \
         -derivedDataPath "$DERIVED" \
         CODE_SIGNING_ALLOWED=NO
+}
+
+job_package() {
+    step 'package: the disk image'
+    # The same script the release workflow runs, so this job is the rehearsal
+    # for a release and not an imitation of one.
+    scripts/package-mac.sh
 }
 
 job_live() {

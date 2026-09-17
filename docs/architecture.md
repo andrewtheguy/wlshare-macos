@@ -194,3 +194,23 @@ this tree, the sibling `../wlshare` and `../devtools` to the Mac and runs them
 there. The sibling goes over because the shared scripts expect a core repo
 beside this one and because it is what the `--config` patch points at; a build
 of the tag as pinned does not read it.
+
+## Shipping
+
+`scripts/package-mac.sh` is the release build: the core, `xcodegen`, an Xcode
+Release build, and `hdiutil` wrapping the bundle and an `/Applications` symlink
+into a disk image. `.github/workflows/release.yml` runs that one script on a
+macOS runner and publishes what it leaves in `dist/package/`, so the image a
+release carries is the image anyone can build — the workflow adds the tag and
+the release, not a different build.
+
+Two things it deliberately does not do. It does not sign with a Developer ID or
+notarize: there is no certificate, so the bundle is ad-hoc signed, which is only
+as much as an arm64 binary needs to run at all, and the README carries the
+quarantine workaround that costs. And it does not parse `project.yml` for the
+version — it reads `CFBundleShortVersionString` back out of the bundle it just
+built, so the tag `v<version>` names what actually shipped rather than what the
+generator was asked for. `MARKETING_VERSION` is the one literal, and the plist
+names it explicitly: xcodegen's default for that key is a flat `1.0` that
+ignores the setting entirely, which is exactly the kind of mismatch reading the
+version back out of the bundle turns into a visible one.

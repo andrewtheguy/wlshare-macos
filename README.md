@@ -12,6 +12,44 @@ extensions this client does not speak.
 
 macOS only, Apple Silicon only. There is no iOS target.
 
+## Install
+
+Each release carries `WlshareViewer-macos-arm64.dmg` — the app in a
+drag-to-Applications disk image — and a `SHA256SUMS` beside it.
+
+The image is **unsigned and not notarized**: there is no Developer ID behind it.
+Gatekeeper quarantines anything a browser downloads and then says *"wlshare" is
+damaged and can't be opened*, which is the message it gives for this rather than
+for anything actually being wrong.
+
+The clean way around it is not to pick up the quarantine flag at all — browsers
+set `com.apple.quarantine`, `curl` does not:
+
+```sh
+# Replace vX.Y.Z with the tag from the Releases page.
+curl -fL -o WlshareViewer.dmg \
+  https://github.com/andrewtheguy/wlshare-macos/releases/download/vX.Y.Z/WlshareViewer-macos-arm64.dmg
+shasum -a 256 WlshareViewer.dmg
+```
+
+Then open the image, drag the app — Finder shows it as **wlshare**, the bundle is
+`WlshareViewer.app` — onto the **Applications** shortcut in the window, and eject
+it. If you already downloaded through a browser, the flag
+follows the app out of the image, so clear it where it landed:
+
+```sh
+xattr -cr /Applications/WlshareViewer.app
+```
+
+Right-clicking the app and choosing **Open** the first time works too.
+
+Building it yourself avoids all of this — a locally built app is never
+quarantined:
+
+```sh
+scripts/package-mac.sh   # dist/package/WlshareViewer-macos-arm64.dmg
+```
+
 ## What you need
 
 - A Mac with Xcode (for `xcodebuild` and the Metal toolchain —
@@ -55,11 +93,21 @@ WlshareViewer.app/Contents/MacOS/WlshareViewer -server host:port -password secre
 
 ```sh
 ci/ci.sh                # the Rust core's tests and clippy, then the app build
+ci/ci.sh package        # the Release build and the disk image a release ships
 ci/ci.sh live           # the session tests, against a real wlshare
 ```
 
 `core/` builds and tests on Linux too, and that is the fast loop: the protocol,
 the decoders and the session state machine have nothing Apple in them.
+
+## Releasing
+
+Bump `MARKETING_VERSION` in `project.yml`, then run the **Release the macOS app**
+workflow by hand (`gh workflow run release.yml --ref main`). It builds and
+packages on a runner with `scripts/package-mac.sh`, publishes the disk image and
+`SHA256SUMS` as `v<MARKETING_VERSION>`, and creates that tag — a run on any
+branch other than `main` is a prerelease instead. A version that already has a
+tag is refused.
 
 ## Layout
 
@@ -67,4 +115,6 @@ the decoders and the session state machine have nothing Apple in them.
   the C ABI in `src/ffi.rs` behind `include/wlshare_client.h`.
 - `Sources/WlshareViewer/` — the app: the connect form, the window, the Metal
   view, the input.
+- `scripts/package-mac.sh` — the release build and the disk image; the release
+  workflow runs nothing else.
 - `docs/architecture.md` — how the two halves fit together, and why.

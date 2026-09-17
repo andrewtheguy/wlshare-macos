@@ -48,6 +48,12 @@ targets:
       properties:
         CFBundleName: WlshareViewer
         CFBundleDisplayName: wlshare
+        # Both spelled out: xcodegen's defaults for these are a flat 1.0 and 1,
+        # which ignore the two settings above and would put a version nobody
+        # chose in the About box — and on the release the packaging script tags
+        # from what the bundle says.
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSMinimumSystemVersion: "14.0"
         NSHighResolutionCapable: true
         # No Dock icon is wrong for a window you click into; the delegate sets
