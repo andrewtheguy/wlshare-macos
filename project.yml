@@ -1,0 +1,55 @@
+# The Xcode project, generated: `xcodegen generate` after any change here or to
+# the sources. WlshareViewer.xcodeproj is gitignored — this file is the project.
+name: WlshareViewer
+
+options:
+  bundleIdPrefix: dev.andrewtheguy
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    # macOS only, Apple Silicon only: the Rust core is built for one target and
+    # a fat binary would mean building it twice for a machine nobody has.
+    ARCHS: arm64
+    ONLY_ACTIVE_ARCH: YES
+
+targets:
+  WlshareViewer:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/WlshareViewer
+    settings:
+      base:
+        PRODUCT_NAME: WlshareViewer
+        PRODUCT_BUNDLE_IDENTIFIER: dev.andrewtheguy.wlshareviewer
+        MARKETING_VERSION: "0.0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        # The bridging header is the whole of what Swift knows about the core.
+        SWIFT_OBJC_BRIDGING_HEADER: Sources/WlshareViewer/Bridging-Header.h
+        # Both filled by ./build-core.sh, which must run before a build.
+        HEADER_SEARCH_PATHS: $(SRCROOT)/dist
+        LIBRARY_SEARCH_PATHS: $(SRCROOT)/dist
+        OTHER_LDFLAGS: -lwlshare_client_core
+        ENABLE_HARDENED_RUNTIME: YES
+        # Xcode 16's debug dylib splits the app in two and links a preview
+        # stub that has no sources and no library search path of its own; from
+        # the command line it fails before anything real is built.
+        ENABLE_DEBUG_DYLIB: NO
+        # Nothing here is distributed yet, and a signing identity is one more
+        # thing to have set up before the app will even run locally.
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "-"
+    info:
+      path: Sources/WlshareViewer/Info.plist
+      properties:
+        CFBundleName: WlshareViewer
+        CFBundleDisplayName: wlshare
+        LSMinimumSystemVersion: "14.0"
+        NSHighResolutionCapable: true
+        # No Dock icon is wrong for a window you click into; the delegate sets
+        # the policy at launch, and this keeps it out of the way until then.
+        LSUIElement: false
