@@ -27,6 +27,10 @@ final class DesktopView: MTKView {
 
     private var cursorGeneration: UInt64 = 0
     private var remoteCursor: NSCursor?
+    /// The scale `remoteCursor` was built at. An `NSCursor` is measured in
+    /// points, so a window that moved between a retina screen and one that is
+    /// not needs the same shape built again.
+    private var cursorScale: Double = 0
     /// Where the pointer was last sent, so that letting go of its buttons does
     /// not also move it to the corner of the desktop.
     private var lastPosition: (x: UInt16, y: UInt16) = (0, 0)
@@ -174,8 +178,9 @@ final class DesktopView: MTKView {
     private func takeCursor() {
         var changed = false
         client.withCursor { cursor in
-            guard cursor.generation != cursorGeneration else { return }
+            guard cursor.generation != cursorGeneration || surface.scale != cursorScale else { return }
             cursorGeneration = cursor.generation
+            cursorScale = surface.scale
             remoteCursor = Self.cursor(cursor, scale: surface.scale)
             changed = true
         }
@@ -197,8 +202,10 @@ final class DesktopView: MTKView {
                   bitsPerPixel: 32,
                   bytesPerRow: width * 4,
                   space: CGColorSpaceCreateDeviceRGB(),
-                  // Straight RGBA, as the core hands it over.
-                  bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue),
+                  // Premultiplied RGBA, as the core hands it over; read as
+                  // straight, every antialiased edge and shadow would be
+                  // multiplied by its alpha a second time and come out dark.
+                  bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
                   provider: provider,
                   decode: nil,
                   shouldInterpolate: false,
@@ -215,10 +222,21 @@ final class DesktopView: MTKView {
         return NSCursor(image: bitmap, hotSpot: hotspot)
     }
 
+    /// A pointer that is not there. `NSCursor.hide()` is the other way and the
+    /// wrong one: it is process-wide, it stacks, and it would have to be undone
+    /// on every path out of the view.
+    private static let nothing = NSCursor(
+        image: NSImage(size: NSSize(width: 1, height: 1), flipped: false) { _ in true },
+        hotSpot: .zero
+    )
+
     override func resetCursorRects() {
-        // No remote shape yet is a pointer that is hidden or has not arrived,
-        // and an arrow of our own would be a second pointer on the desktop.
-        addCursorRect(bounds, cursor: remoteCursor ?? .arrow)
+        // No shape has arrived at all — the session is still connecting — so the
+        // window keeps the arrow it came with. Once one has, a shape that is
+        // gone is the server saying there is no pointer to draw: an arrow of our
+        // own would be a pointer the desktop does not have, and the framebuffer
+        // never carries one.
+        addCursorRect(bounds, cursor: remoteCursor ?? (cursorGeneration == 0 ? .arrow : Self.nothing))
     }
 
     // MARK: - The window's backing store
@@ -260,8 +278,9 @@ final class DesktopView: MTKView {
         guard now != surface else { return }
         surface = now
         client.surface(now)
-        // The shape was made for the old scale.
-        window?.invalidateCursorRects(for: self)
+        // The shape was built for the old scale, in points, so it is built
+        // again rather than only re-set.
+        takeCursor()
     }
 
     // MARK: - Input
@@ -354,7 +373,16 @@ final class DesktopView: MTKView {
         guard let mask = Self.modifiers[event.keyCode],
               let keysym = Client.keysym(keyCode: event.keyCode, character: nil)
         else { return }
-        client.key(down: event.modifierFlags.rawValue & mask != 0, keysym: keysym)
+        let down = event.modifierFlags.rawValue & mask != 0
+        // Held like any other key, because the key-up may never come here:
+        // Command-N opens the connection panel, and the window that took the
+        // keyboard gets the release. What is held is what is let go of.
+        if down {
+            held[event.keyCode] = keysym
+        } else {
+            held.removeValue(forKey: event.keyCode)
+        }
+        client.key(down: down, keysym: keysym)
     }
 
     /// Let go of everything this window is holding — it is losing the keyboard,

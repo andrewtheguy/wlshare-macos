@@ -201,6 +201,26 @@ mod tests {
         });
     }
 
+    /// A server that accepts the socket and then says nothing is the worst
+    /// case for a shutdown: there is no timeout short of the connect timeout,
+    /// and `Drop` waits for the thread, so the window would freeze with it.
+    #[test]
+    fn a_client_dropped_during_the_handshake_does_not_wait_for_the_server() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a port to listen on");
+        let port = listener.local_addr().expect("the port").port();
+        // Accepts and hands the socket back, and nothing writes to it: the
+        // session is left waiting for the server's version.
+        let accept = std::thread::spawn(move || listener.accept().expect("the client's connection").0);
+
+        let config = Config { host: "127.0.0.1".to_owned(), port, username: String::new(), password: String::new() };
+        let client = Client::connect(config, Surface { width: 800, height: 600, scale: 2.0 });
+        let _socket = accept.join().expect("the accepting thread");
+
+        let start = std::time::Instant::now();
+        drop(client);
+        assert!(start.elapsed() < std::time::Duration::from_secs(2), "dropping took {:?}", start.elapsed());
+    }
+
     #[test]
     fn dropping_a_client_joins_its_thread_and_the_callback_stops_first() {
         let client = Client::connect(nowhere(), Surface { width: 800, height: 600, scale: 2.0 });

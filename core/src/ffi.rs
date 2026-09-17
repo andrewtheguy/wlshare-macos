@@ -64,8 +64,8 @@ pub struct WlshareFrame {
 /// The pointer's shape, as it is for the length of one callback.
 #[repr(C)]
 pub struct WlshareCursor {
-    /// `width * height * 4` bytes of straight (not premultiplied) RGBA, or null
-    /// when `present` is false.
+    /// `width * height * 4` bytes of premultiplied RGBA, as `CursorImage` holds
+    /// them, or null when `present` is false.
     pub rgba: *const u8,
     /// Which shape this is. Unchanged means the same shape as last time.
     pub generation: u64,

@@ -162,8 +162,17 @@ RGBA, Cursor as pixels and a 1-bit mask, and the core turns either into one
 `CursorImage`; an empty rectangle is a pointer that is hidden or on another
 output. The shape is in the desktop's pixels, which are the window's backing
 pixels, so the `NSCursor` is built at `size / scale` points with its hotspot
-scaled to match, and set as the view's cursor rect — which also takes the local
-arrow away, or there would be two pointers on the desktop.
+scaled to match — and built again when the window moves to a screen of another
+density, points being what an `NSCursor` is measured in — and set as the view's
+cursor rect, which also takes the local arrow away, or there would be two
+pointers on the desktop. The pixels stay premultiplied the whole way, into a
+`CGImage` that is told so.
+
+The window keeps its own arrow until the first shape arrives, because until
+then there is nothing to say the pointer is anywhere else. After that, a shape
+that is gone is the server saying there is no pointer to draw, and the cursor
+rect holds an empty image: the framebuffer carries no pointer either, so an
+arrow of our own would be one the desktop does not have.
 
 ## The C ABI
 

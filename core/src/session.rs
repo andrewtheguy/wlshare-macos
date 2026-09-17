@@ -26,7 +26,7 @@
 //! Audio, camera, microphone, clipboard and output selection are not spoken.
 //! Their pseudo-encodings are not listed, so the server never offers them.
 
-use std::future::pending;
+use std::future::{Future, pending};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -248,14 +248,23 @@ async fn connect_and_run(config: Config, surface: Surface, shared: &Arc<Shared>,
         false => Some(ClientKey::generate().context("generating this session's RSA key")?),
     };
 
-    let socket = tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect((config.host.as_str(), config.port)))
-        .await
-        .with_context(|| format!("connecting to {}:{} took over {CONNECT_TIMEOUT:?}", config.host, config.port))?
-        .with_context(|| format!("connecting to {}:{}", config.host, config.port))?;
-    socket.set_nodelay(true)?;
-    let (reader, writer) = socket.into_split();
-
-    let (mut reader, mut writer, init) = handshake(reader, writer, &config, key).await?;
+    // Beside the commands rather than in front of them: dropping a `Client`
+    // sends Shutdown and then waits for this thread, and a socket that is still
+    // connecting — or a server that accepts one and never sends its version —
+    // would otherwise hold the window for as long as it pleased.
+    let mut surface = surface;
+    let connecting = async {
+        let socket = tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect((config.host.as_str(), config.port)))
+            .await
+            .with_context(|| format!("connecting to {}:{} took over {CONNECT_TIMEOUT:?}", config.host, config.port))?
+            .with_context(|| format!("connecting to {}:{}", config.host, config.port))?;
+        socket.set_nodelay(true)?;
+        let (reader, writer) = socket.into_split();
+        handshake(reader, writer, &config, key).await
+    };
+    let Some((mut reader, mut writer, init)) = while_connecting(&mut commands, &mut surface, connecting).await.transpose()? else {
+        return Ok(());
+    };
 
     {
         let mut status = shared.status.lock().unwrap();
@@ -277,6 +286,7 @@ async fn connect_and_run(config: Config, surface: Surface, shared: &Arc<Shared>,
         requested: None,
         asked_scale: None,
         asked_size: None,
+        awaiting_scale: false,
         held_size: None,
         cursor_generation: 0,
     };
@@ -326,6 +336,26 @@ async fn connect_and_run(config: Config, surface: Surface, shared: &Arc<Shared>,
                 let wanted = session.surface;
                 session.ask_for(&mut writer, wanted).await?;
             }
+        }
+    }
+}
+
+/// Run the handshake while the window is still being listened to, and answer
+/// `None` if the window gave up before it finished — the session is then over
+/// before it began.
+///
+/// Input to a desktop that does not exist yet is dropped. The window's size is
+/// not: a window resized while connecting is the size the session starts at.
+async fn while_connecting<T>(commands: &mut UnboundedReceiver<Command>, surface: &mut Surface, work: impl Future<Output = T>) -> Option<T> {
+    tokio::pin!(work);
+    loop {
+        tokio::select! {
+            done = &mut work => return Some(done),
+            command = commands.recv() => match command {
+                None | Some(Command::Shutdown) => return None,
+                Some(Command::Surface(wanted)) if wanted.is_usable() => *surface = wanted,
+                Some(_) => {}
+            },
         }
     }
 }
@@ -398,6 +428,9 @@ struct Live {
     requested: Option<Surface>,
     asked_scale: Option<f64>,
     asked_size: Option<(u16, u16)>,
+    /// Set while a declared density is waiting for the `OutputScale` that
+    /// answers it. No size may go out until it arrives ([`Live::ask_for`]).
+    awaiting_scale: bool,
     /// A size request waiting for the density that goes with it to be answered
     /// ([`Live::ask_for`]).
     held_size: Option<(u16, u16)>,
@@ -425,6 +458,15 @@ impl Live {
         if self.asked_scale != Some(surface.scale) {
             writer.send(&client::client_density(surface.scale)).await?;
             self.asked_scale = Some(surface.scale);
+            self.awaiting_scale = true;
+            self.held_size = (self.asked_size != Some(size)).then_some(size);
+            return Ok(());
+        }
+        if self.awaiting_scale {
+            // The density this size goes with is still in flight — a resize
+            // that caught up with it, or a window that went back to the scale
+            // it was already asking for. It waits with it rather than beside
+            // it, and replaces whatever older size was waiting.
             self.held_size = (self.asked_size != Some(size)).then_some(size);
             return Ok(());
         }
@@ -505,11 +547,12 @@ impl Live {
                 log::debug!("the desktop is {width}x{height} at scale {scale}");
                 self.shared.status.lock().unwrap().scale = scale;
                 self.shared.wake();
-                if self.released_by(scale)
-                    && let Some((width, height)) = self.held_size.take()
-                {
-                    writer.send(&client::set_desktop_size(width, height)).await?;
-                    self.asked_size = Some((width, height));
+                if self.awaiting_scale && self.released_by(scale) {
+                    self.awaiting_scale = false;
+                    if let Some((width, height)) = self.held_size.take() {
+                        writer.send(&client::set_desktop_size(width, height)).await?;
+                        self.asked_size = Some((width, height));
+                    }
                 }
             }
             // Asked for by nobody here: the client lists no clipboard
@@ -638,6 +681,7 @@ mod tests {
             requested: None,
             asked_scale: None,
             asked_size: None,
+            awaiting_scale: false,
             held_size: None,
             cursor_generation: 0,
         }
@@ -676,6 +720,35 @@ mod tests {
         assert_eq!(
             sent(&mut writer),
             vec![ClientMsg::SetDesktopSize { width: 800, height: 600, screens: vec![Screen::whole(800, 600)] }]
+        );
+    }
+
+    /// The same one at a time, from the other side: a window that is resized
+    /// while a density is in flight must not slip a size past it, and what goes
+    /// out when the answer comes is the size the window is now.
+    #[tokio::test]
+    async fn a_resize_that_catches_up_with_a_density_waits_for_it_as_well() {
+        let mut live = live();
+        let mut writer = writer();
+
+        live.ask_for(&mut writer, Surface { width: 1600, height: 1200, scale: 2.0 }).await.unwrap();
+        assert_eq!(sent(&mut writer), vec![ClientMsg::ClientDensity { fixed: to_fixed(2.0) }]);
+
+        live.ask_for(&mut writer, Surface { width: 1400, height: 1000, scale: 2.0 }).await.unwrap();
+        assert_eq!(sent(&mut writer), vec![], "a size at the density still in flight waits with it");
+
+        live.handle(ServerMsg::OutputScale { width: 1024, height: 768, fixed: to_fixed(2.0) }, &mut writer).await.unwrap();
+        assert_eq!(
+            sent(&mut writer),
+            vec![ClientMsg::SetDesktopSize { width: 1400, height: 1000, screens: vec![Screen::whole(1400, 1000)] }],
+            "the size that goes out is the window's latest, not the one it held first"
+        );
+
+        // The density is answered, so the next size needs nothing ahead of it.
+        live.ask_for(&mut writer, Surface { width: 1200, height: 900, scale: 2.0 }).await.unwrap();
+        assert_eq!(
+            sent(&mut writer),
+            vec![ClientMsg::SetDesktopSize { width: 1200, height: 900, screens: vec![Screen::whole(1200, 900)] }]
         );
     }
 

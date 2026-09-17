@@ -61,8 +61,8 @@ typedef struct {
 } WlshareFrame;
 
 /* The pointer's shape, as it is for the length of one callback. `rgba` is
- * straight, not premultiplied. `present` false is a pointer that is hidden or
- * has not arrived. */
+ * premultiplied. `present` false is a pointer that is hidden or has not
+ * arrived; `generation` tells the two apart, being zero until the first shape. */
 typedef struct {
     const uint8_t *rgba;
     uint64_t generation;
