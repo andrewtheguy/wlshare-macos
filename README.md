@@ -20,23 +20,35 @@ macOS only, Apple Silicon only. There is no iOS target.
 - Rust, and a sibling checkout of `wlshare` at `../wlshare`: the core links its
   `wlshare-rfb` crate, which is where every protocol byte comes from.
 
-## Running it
+## Connecting
+
+Opening the app — from the Finder, from the Dock, from `open` — puts up a form
+for the host, the port, the user name and the password, and connects when you
+fill it in. It comes back filled with the last destination, and with the
+password too if you ticked **Remember the password**, which puts it in the
+keychain and nowhere else. **File ▸ Connect…** (⌘N) asks again, **Disconnect**
+(⌘D) ends the session, and a connection that is refused or drops brings the form
+back with the reason on it.
+
+An empty password asks for the `None` security type; anything else asks for
+RSA-AES, which is the only type this client authenticates with — and the one
+that encrypts the session.
+
+A destination on the command line skips the form, which is what the script and
+the tests use:
 
 ```sh
+scripts/run-macos.sh                            # ask in the app's own window
 scripts/run-macos.sh 192.168.1.10:5900          # a server with no password
 scripts/run-macos.sh 192.168.1.10:5900 secret   # one that wants RSA-AES
 ```
 
 That builds the core, generates the project, builds the app and opens it. The
-app takes its arguments the same way by hand:
+app takes the same words by hand:
 
 ```sh
 WlshareViewer.app/Contents/MacOS/WlshareViewer -server host:port -password secret
 ```
-
-An empty password asks for the `None` security type; anything else asks for
-RSA-AES, which is the only type this client authenticates with — and the one
-that encrypts the session.
 
 ## Checks
 
@@ -52,5 +64,6 @@ the decoders and the session state machine have nothing Apple in them.
 
 - `core/` — the Rust crate: session, framebuffer, keysym and wheel tables, and
   the C ABI in `src/ffi.rs` behind `include/wlshare_client.h`.
-- `Sources/WlshareViewer/` — the app: the window, the Metal view, the input.
+- `Sources/WlshareViewer/` — the app: the connect form, the window, the Metal
+  view, the input.
 - `docs/architecture.md` — how the two halves fit together, and why.

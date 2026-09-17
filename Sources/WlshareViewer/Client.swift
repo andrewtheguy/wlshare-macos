@@ -14,25 +14,58 @@ import Foundation
 /// side of the header, and the header says so.
 final class Client: @unchecked Sendable {
     private let handle: OpaquePointer
+    private let wake = Wake()
+    private let context: UnsafeMutableRawPointer
+
     /// Called on the main queue when the session has something new to draw.
-    @MainActor var onChange: (() -> Void)?
+    @MainActor var onChange: (() -> Void)? {
+        get { wake.onChange }
+        set { wake.onChange = newValue }
+    }
+
+    /// What the wake callback is handed, and the reason it is not the `Client`
+    /// itself: the session can put a redraw on the main queue a moment before
+    /// it is told to stop, and that block must have something to land on after
+    /// the `Client` has gone. This outlives it by one hop of the main queue.
+    ///
+    /// `@unchecked Sendable` because the session's thread does no more with it
+    /// than carry it to the main queue; the callback inside is read and written
+    /// there and nowhere else.
+    private final class Wake: @unchecked Sendable {
+        /// Main queue only, which is where every hand that touches it runs.
+        nonisolated(unsafe) var onChange: (() -> Void)?
+    }
 
     init(host: String, port: UInt16, username: String, password: String, surface: Surface) {
         handle = wlshare_client_connect(host, port, username, password, surface.width, surface.height, surface.scale)
+        context = Unmanaged.passRetained(wake).toOpaque()
         // The trampoline hops to the main queue, so the session's thread is
         // never held up by a redraw and the header's "must not block" is kept
         // whatever the window does.
         wlshare_client_on_frame(handle, { ctx in
             guard let ctx else { return }
-            let client = Unmanaged<Client>.fromOpaque(ctx).takeUnretainedValue()
-            DispatchQueue.main.async { MainActor.assumeIsolated { client.onChange?() } }
-        }, Unmanaged.passUnretained(self).toOpaque())
+            let wake = Unmanaged<Wake>.fromOpaque(ctx).takeUnretainedValue()
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    // Taken out first: the callback may end the session, and a
+                    // closure must not be freed while it is running.
+                    let onChange = wake.onChange
+                    onChange?()
+                }
+            }
+        }, context)
     }
 
     deinit {
         // Clears the callback and joins the session's thread, so nothing can
         // call back into a half-deallocated object.
         wlshare_client_close(handle)
+        wake.onChange = nil
+        // The wake is let go behind whatever the session queued on its way
+        // out: the main queue is serial, so a block put there now runs after
+        // every block that was already waiting on it.
+        let context = self.context
+        DispatchQueue.main.async { Unmanaged<Wake>.fromOpaque(context).release() }
     }
 
     /// A window's backing store: its size in device pixels and the scale it is

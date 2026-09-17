@@ -1,57 +1,60 @@
 import AppKit
 import Metal
 
-/// The window, the connection behind it, and nothing else. Everything that is
-/// about the desktop is in `DesktopView`; everything about the wire is in the
-/// Rust core.
+/// The connect form, the window behind it, and the session between them.
+/// Everything that is about the desktop is in `DesktopView`; everything about
+/// the wire is in the Rust core.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var device: MTLDevice?
     private var window: NSWindow?
     private var view: DesktopView?
     private var client: Client?
     private let banner = NSTextField(labelWithString: "")
-
-    /// Where to connect, from the command line:
-    ///
-    ///     WlshareViewer -server 127.0.0.1:5999 -password secret
-    ///
-    /// `UserDefaults` reads `-key value` pairs off the argument list, so the
-    /// same words work through `open --args`.
-    private struct Arguments {
-        var host: String
-        var port: UInt16
-        var username: String
-        var password: String
-
-        init() {
-            let defaults = UserDefaults.standard
-            let server = defaults.string(forKey: "server") ?? "127.0.0.1:5900"
-            let (host, port) = Self.split(server)
-            self.host = host
-            self.port = port
-            username = defaults.string(forKey: "username") ?? ""
-            password = defaults.string(forKey: "password") ?? ""
-        }
-
-        /// `host:port`, `host`, or an IPv6 literal in brackets.
-        static func split(_ server: String) -> (String, UInt16) {
-            if server.hasPrefix("["), let end = server.firstIndex(of: "]") {
-                let host = String(server[server.index(after: server.startIndex)..<end])
-                let rest = server[server.index(after: end)...]
-                return (host, UInt16(rest.dropFirst()) ?? 5900)
-            }
-            guard let colon = server.lastIndex(of: ":"), let port = UInt16(server[server.index(after: colon)...]) else {
-                return (server, 5900)
-            }
-            return (String(server[..<colon]), port)
-        }
-    }
+    private let form = ConnectWindow()
+    /// The last destination tried, which is what the form comes back filled
+    /// with — including a password that was typed but not remembered, so a
+    /// connection that failed for some other reason can be retried as it is.
+    private var last: Destination?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard let device = MTLCreateSystemDefaultDevice() else {
             return fail("this Mac has no Metal device")
         }
-        let arguments = Arguments()
+        self.device = device
+
+        banner.alignment = .center
+        banner.textColor = .white
+        banner.translatesAutoresizingMaskIntoConstraints = false
+        form.onConnect = { [weak self] destination in self?.open(destination) }
+
+        makeMenu()
+        NSApp.setActivationPolicy(.regular)
+        // A launch from a shell says where to go; a launch from the Finder asks.
+        if let destination = Destination.fromArguments() {
+            open(destination)
+            NSApp.activate(ignoringOtherApps: true)
+        } else {
+            ask()
+        }
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        true
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        // Ends the session and joins its thread while there is still a window
+        // for its callbacks to have reached.
+        client = nil
+    }
+
+    // MARK: - A session
+
+    private func open(_ destination: Destination) {
+        guard let device else { return }
+        close()
+        last = destination
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1024, height: 768),
@@ -59,8 +62,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             backing: .buffered,
             defer: false
         )
-        window.title = "\(arguments.host):\(arguments.port)"
+        window.title = destination.label
+        // A window made this way frees itself on close, which under ARC is one
+        // release too many the moment anything still holds it — and this holds
+        // it, because closing it is something the app does rather than only the
+        // person using it.
+        window.isReleasedWhenClosed = false
         window.center()
+        // The next session opens at the size the last one was left at.
         window.setFrameAutosaveName("desktop")
         self.window = window
 
@@ -68,10 +77,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // to match before the first frame rather than after it.
         let backing = window.convertToBacking(NSRect(origin: .zero, size: window.contentLayoutRect.size)).size
         let client = Client(
-            host: arguments.host,
-            port: arguments.port,
-            username: arguments.username,
-            password: arguments.password,
+            host: destination.host,
+            port: destination.port,
+            username: destination.username,
+            password: destination.password,
             surface: Client.Surface(
                 width: UInt16(clamping: Int(backing.width)),
                 height: UInt16(clamping: Int(backing.height)),
@@ -85,9 +94,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.contentView = view
         self.view = view
 
-        banner.alignment = .center
-        banner.textColor = .white
-        banner.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(banner)
         NSLayoutConstraint.activate([
             banner.centerXAnchor.constraint(equalTo: view.centerXAnchor),
@@ -97,21 +103,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         client.onChange = { [weak self] in self?.changed() }
         changed()
 
-        makeMenu()
-        NSApp.setActivationPolicy(.regular)
         window.makeKeyAndOrderFront(nil)
         window.makeFirstResponder(view)
-        NSApp.activate(ignoringOtherApps: true)
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        true
-    }
-
-    func applicationWillTerminate(_ notification: Notification) {
-        // Ends the session and joins its thread while there is still a window
-        // for its callbacks to have reached.
+    /// Put the session and its window away. Nothing here quits the app on its
+    /// own: the caller has already brought the form up, and a window closed
+    /// while another is on screen is not the last one.
+    private func close() {
         client = nil
+        banner.removeFromSuperview()
+        // Ordered out rather than closed: `close()` runs the window out with an
+        // animation, and a window taken apart underneath one leaves its last
+        // frame on the screen for good.
+        window?.orderOut(nil)
+        window?.contentView = nil
+        view = nil
+        window = nil
     }
 
     /// The session has something new: a frame, a size, a state. Called on the
@@ -127,7 +135,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let name = status.name.isEmpty ? window.title : status.name
             window.title = "\(name) — \(status.desktop.width)×\(status.desktop.height) @ \(scale(status.scale))"
         case .closed:
-            banner.stringValue = status.error.map { "Disconnected: \($0)" } ?? "Disconnected"
+            // Back to the form with the reason on it, and only then take the
+            // window away, so the app is never down to no windows at all.
+            ask(error: status.error ?? "The connection closed.")
+            return close()
         }
         banner.isHidden = banner.stringValue.isEmpty
         view.needsDisplay = true
@@ -144,17 +155,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.terminate(nil)
     }
 
+    private func ask(error: String? = nil) {
+        form.show(last ?? Destination.remembered(), error: error)
+    }
+
+    @objc private func askWhereToConnect() {
+        ask()
+    }
+
+    @objc private func disconnect() {
+        ask()
+        close()
+    }
+
     /// The smallest menu that makes the app behave like one: without it there
     /// is no ⌘Q, and every key the desktop does not want is a beep.
     private func makeMenu() {
         let root = NSMenu()
-        let item = NSMenuItem()
+
         let app = NSMenu()
         app.addItem(withTitle: "Hide WlshareViewer", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         app.addItem(.separator())
         app.addItem(withTitle: "Quit WlshareViewer", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        item.submenu = app
-        root.addItem(item)
+
+        let file = NSMenu(title: "File")
+        file.addItem(withTitle: "Connect…", action: #selector(askWhereToConnect), keyEquivalent: "n")
+        file.addItem(withTitle: "Disconnect", action: #selector(disconnect), keyEquivalent: "d")
+        for item in file.items { item.target = self }
+
+        for menu in [app, file] {
+            let item = NSMenuItem()
+            item.title = menu.title
+            item.submenu = menu
+            root.addItem(item)
+        }
         NSApp.mainMenu = root
     }
 }

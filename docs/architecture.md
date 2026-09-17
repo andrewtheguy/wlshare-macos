@@ -28,6 +28,27 @@ density extension, and nothing else — so the server never offers audio, camera
 microphone or output selection, and `client::parse` treats a rectangle nobody
 asked for as fatal. The clipboard is recognised and dropped.
 
+## Where a session begins
+
+The app is packaged, so the destination cannot only be a command-line argument:
+`ConnectWindow` is a form for the host, the port, the user name and the
+password, and it is what an app opened from the Finder starts at. `-server` on
+the command line skips it, which is what `scripts/run-macos.sh` and anything
+automated use.
+
+Only one thing is remembered on purpose. The host, the port and the user name
+are preferences; the password goes to the keychain, and only when the checkbox
+says so — a `defaults` plist is a file, and a password in one is a password in
+plain text. The preference keys are deliberately not `server`, `username` and
+`password`: those are the argument names, and `UserDefaults`' argument domain
+outranks anything written to the standard one, so a launch with arguments would
+otherwise poison what the form reads back.
+
+A session ends where it began. A refused connection, a dropped one and
+**Disconnect** all put the form back up with the reason on it, and only then
+take the window away — in that order, because an app that is briefly down to no
+windows at all is an app that quits itself.
+
 ## Threads
 
 `Client::connect` starts one thread with a current-thread tokio runtime on it
@@ -45,7 +66,11 @@ next lets it. `MTKView` is paused with `enableSetNeedsDisplay`, because a
 desktop that has not changed has nothing to redraw.
 
 Dropping the `Client` clears the callback *before* joining the thread, so
-nothing can call into a half-deallocated window.
+nothing can call into a half-deallocated window. The callback's context is a
+small object of its own rather than the `Client`, because clearing and joining
+does not reach a redraw that is already sitting on the main queue: that block
+holds the context, and the context is let go behind it, by one more block on the
+same serial queue.
 
 ## Pixels
 

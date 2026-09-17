@@ -255,7 +255,7 @@ async fn connect_and_run(config: Config, surface: Surface, shared: &Arc<Shared>,
     socket.set_nodelay(true)?;
     let (reader, writer) = socket.into_split();
 
-    let (mut reader, mut writer, init) = handshake(reader, writer, &config, key.as_ref()).await?;
+    let (mut reader, mut writer, init) = handshake(reader, writer, &config, key).await?;
 
     {
         let mut status = shared.status.lock().unwrap();
@@ -336,7 +336,7 @@ async fn handshake(
     mut reader: OwnedReadHalf,
     mut writer: OwnedWriteHalf,
     config: &Config,
-    key: Option<&ClientKey>,
+    key: Option<ClientKey>,
 ) -> anyhow::Result<(Reader, Writer<OwnedWriteHalf>, client::ServerInit)> {
     client::read_version(&mut reader).await.context("reading the server's version")?;
     writer.write_all(PROTOCOL_VERSION).await?;
