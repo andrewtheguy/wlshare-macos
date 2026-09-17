@@ -17,8 +17,9 @@ macOS only, Apple Silicon only. There is no iOS target.
 - A Mac with Xcode (for `xcodebuild` and the Metal toolchain —
   `xcodebuild -downloadComponent MetalToolchain` if `metal` is missing) and
   [xcodegen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`).
-- Rust, and a sibling checkout of `wlshare` at `../wlshare`: the core links its
-  `wlshare-rfb` crate, which is where every protocol byte comes from.
+- Rust. The core links `wlshare-rfb`, where every protocol byte comes from,
+  pinned in `core/Cargo.toml` to a released tag of the `wlshare` repo and
+  fetched by cargo — no sibling checkout needed to build.
 
 ## Connecting
 

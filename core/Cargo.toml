@@ -14,9 +14,19 @@ name = "wlshare_client_core"
 crate-type = ["staticlib", "rlib"]
 
 [dependencies]
-# Every protocol byte. The sibling checkout, not a release: the two move
-# together and there is nothing published to pin.
-wlshare-rfb = { path = "../../wlshare/crates/wlshare-rfb" }
+# Every protocol byte, from the release this client was built and tested
+# against — not the sibling checkout, so what is built here is the same wire on
+# this machine, on the Mac and on one that has never heard of `../wlshare`.
+# Cargo.lock holds the revision the tag stood for.
+#
+# To build against an unreleased change, point it at the checkout for as long
+# as that takes, without committing anything:
+#
+#   cargo test --config 'patch."https://github.com/andrewtheguy/wlshare.git".wlshare-rfb.path="../../wlshare/crates/wlshare-rfb"'
+#
+# That rewrites Cargo.lock while it is in force, so put the pinned one back
+# (`git checkout core/Cargo.lock`) before committing anything.
+wlshare-rfb = { git = "https://github.com/andrewtheguy/wlshare.git", tag = "v0.0.20" }
 anyhow = "1"
 thiserror = "2"
 log = "0.4"

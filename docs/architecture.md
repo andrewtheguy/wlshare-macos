@@ -16,9 +16,12 @@ owns a window, a Metal texture and the events macOS hands it. The app parses no
 protocol and the core knows no AppKit, which is what lets the whole of the first
 be unit-tested on a machine that has never seen the second.
 
-Every protocol byte comes from `wlshare-rfb`, the sibling `../wlshare`
-checkout's crate — the same one the daemon is built on, read from the other end.
-A wire change belongs there, not here.
+Every protocol byte comes from `wlshare-rfb` — the same crate the daemon is
+built on, read from the other end. It is a cargo dependency on a released tag of
+the `wlshare` repo rather than the sibling checkout, so what this repo builds is
+decided by `core/Cargo.toml` and `core/Cargo.lock` and not by the state of
+somebody's `../wlshare`. A wire change belongs there, is released from there,
+and arrives here as a bumped tag.
 
 ## Scope
 
@@ -184,7 +187,10 @@ cleanly and corrupts memory at run time; nothing else would catch it.
 which is what `project.yml` points the app's search paths at. There is no
 xcframework and no pinned release zip — the pattern `../ezvpn-apple` uses for a
 core in another repo — because the core is in *this* repo and has one consumer.
+What is pinned is the crate underneath it, by cargo, on a tag.
 
 `ci/ci.sh` runs the jobs; from the Linux checkout `scripts/mac-ci.sh` pushes
 this tree, the sibling `../wlshare` and `../devtools` to the Mac and runs them
-there.
+there. The sibling goes over because the shared scripts expect a core repo
+beside this one and because it is what the `--config` patch points at; a build
+of the tag as pinned does not read it.
