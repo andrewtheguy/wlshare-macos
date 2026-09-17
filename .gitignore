@@ -1,0 +1,12 @@
+/target
+/core/target
+/dist
+/build
+/tmp
+CLAUDE.local.md
+.DS_Store
+*.xcodeproj
+DerivedData
+.swiftpm
+xcuserdata
+Developer.local.xcconfig
