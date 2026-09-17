@@ -78,16 +78,20 @@ the tests use:
 
 ```sh
 scripts/run-macos.sh                            # ask in the app's own window
-scripts/run-macos.sh 192.168.1.10:5900          # a server with no password
-scripts/run-macos.sh 192.168.1.10:5900 secret   # one that wants RSA-AES
+scripts/run-macos.sh 192.168.1.10:5900          # straight to that desktop
 ```
 
 That builds the core, generates the project, builds the app and opens it. The
 app takes the same words by hand:
 
 ```sh
-WlshareViewer.app/Contents/MacOS/WlshareViewer -server host:port -password secret
+WlshareViewer.app/Contents/MacOS/WlshareViewer -server host:port -username me
 ```
+
+There is no password argument, deliberately: an argument list is in the shell's
+history and in everyone's `ps`. A password that was remembered for that
+destination comes from the keychain, and anything else is typed into the form —
+which is what a connection refused for want of one brings back.
 
 ## Checks
 

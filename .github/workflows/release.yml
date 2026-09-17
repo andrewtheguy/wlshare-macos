@@ -15,6 +15,13 @@ on:
 permissions:
   contents: write
 
+# One release at a time. Two runs would race over the same draft, the same
+# version check and the same tag; queued rather than cancelled, because a run
+# that is already uploading a disk image has nothing to gain from being killed.
+concurrency:
+  group: release-the-macos-app
+  cancel-in-progress: false
+
 jobs:
   release:
     # One job on one Mac: the core, the app, the disk image and the release are

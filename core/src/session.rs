@@ -283,7 +283,6 @@ async fn connect_and_run(config: Config, surface: Surface, shared: &Arc<Shared>,
         zrle: ZrleDecoder::default(),
         format: Framebuffer::FORMAT,
         surface,
-        requested: None,
         asked_scale: None,
         asked_size: None,
         awaiting_scale: false,
@@ -319,7 +318,11 @@ async fn connect_and_run(config: Config, surface: Surface, shared: &Arc<Shared>,
                     Command::Surface(wanted) => {
                         // Coalesced, not queued: a live resize posts one of
                         // these a frame and only the last is worth honouring.
-                        if wanted.is_usable() && Some(wanted) != session.requested {
+                        // Against the surface the window last said, not the one
+                        // last asked for — a window dragged out and back before
+                        // the settle would otherwise leave the timer armed for a
+                        // size it only passed through.
+                        if wanted.is_usable() && wanted != session.surface {
                             session.surface = wanted;
                             settle = Some(Instant::now() + RESIZE_SETTLE);
                         }
@@ -423,9 +426,6 @@ struct Live {
     format: PixelFormat,
     /// The window's backing store as it last said.
     surface: Surface,
-    /// The surface the last request was started for, so that a window posting
-    /// the same size every frame does not ask for it every frame.
-    requested: Option<Surface>,
     asked_scale: Option<f64>,
     asked_size: Option<(u16, u16)>,
     /// Set while a declared density is waiting for the `OutputScale` that
@@ -453,7 +453,6 @@ impl Live {
         if !surface.is_usable() {
             return Ok(());
         }
-        self.requested = Some(surface);
         let size = (surface.width, surface.height);
         if self.asked_scale != Some(surface.scale) {
             writer.send(&client::client_density(surface.scale)).await?;
@@ -678,7 +677,6 @@ mod tests {
             zrle: ZrleDecoder::default(),
             format: Framebuffer::FORMAT,
             surface: Surface { width: 800, height: 600, scale: 2.0 },
-            requested: None,
             asked_scale: None,
             asked_size: None,
             awaiting_scale: false,

@@ -21,21 +21,24 @@ struct Destination: Equatable {
 
     /// The command line, for a launch that came from a shell:
     ///
-    ///     WlshareViewer -server 127.0.0.1:5999 -username me -password secret
+    ///     WlshareViewer -server 127.0.0.1:5999 -username me
     ///
     /// `UserDefaults` reads `-key value` pairs off the argument list, so the
     /// same words work through `open --args`. Nil when no `-server` was given,
     /// which is every launch from the Finder — those get the dialog.
+    ///
+    /// The password is not one of the words, and deliberately: an argument list
+    /// is in the shell's history and in everyone's `ps`. A remembered one comes
+    /// from the keychain; anything else is typed into the dialog, which is what
+    /// a refused connection brings back.
     static func fromArguments() -> Destination? {
         let defaults = UserDefaults.standard
         guard let server = defaults.string(forKey: "server") else { return nil }
         let (host, port) = split(server)
-        return Destination(
-            host: host,
-            port: port,
-            username: defaults.string(forKey: "username") ?? "",
-            password: defaults.string(forKey: "password") ?? ""
-        )
+        var destination = Destination(host: host, port: port, username: defaults.string(forKey: "username") ?? "")
+        destination.password = Keychain.password(account: destination.account) ?? ""
+        destination.remember = !destination.password.isEmpty
+        return destination
     }
 
     /// What the dialog opens filled with.
@@ -82,8 +85,8 @@ struct Destination: Equatable {
         return (String(server[..<colon]), port)
     }
 
-    /// Deliberately not `server`, `username` or `password`: those are the
-    /// argument names, and the argument domain outranks anything written here.
+    /// Deliberately not `server` or `username`: those are the argument names,
+    /// and the argument domain outranks anything written here.
     private enum Key {
         static let host = "lastHost"
         static let port = "lastPort"

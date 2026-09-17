@@ -35,8 +35,10 @@ final class ConnectWindow: NSObject, NSWindowDelegate {
         for field in [host, port, username, password] {
             field.widthAnchor.constraint(equalToConstant: 220).isActive = true
             // ⏎ in any field is Connect, which is what the button says too.
+            // `self.connect` names the method: `connect` is also the button,
+            // declared further down this initialiser.
             field.target = self
-            field.action = #selector(connect)
+            field.action = #selector(self.connect)
         }
 
         message.textColor = .systemRed

@@ -4,7 +4,10 @@
 #
 #   scripts/run-macos.sh                        # ask in the app's own window
 #   scripts/run-macos.sh 127.0.0.1:5999         # a server put there by a tunnel
-#   scripts/run-macos.sh 127.0.0.1:5999 secret  # and a password, for RSA-AES
+#
+# A password is not one of the words this takes: an argument list is in the
+# shell's history and in everyone's `ps`. The app reads a remembered one out of
+# the keychain and asks for anything else in its own form.
 #
 # This needs a window server, so from the Linux checkout it must be started
 # inside the macsandbox tmux session rather than over plain ssh — CLAUDE.local.md
@@ -17,8 +20,8 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 # No server on the command line is how a packaged app is launched: the app puts
 # its connect form up instead.
+[ $# -le 1 ] || { echo "usage: $0 [host:port]  (the app asks for the password itself)" >&2; exit 2; }
 server=${1:-}
-password=${2:-}
 
 ./build-core.sh "${WLSHARE_CORE_PROFILE:-release}"
 xcodegen generate
@@ -33,14 +36,10 @@ xcodebuild build \
 app=build/run/Build/Products/Debug/WlshareViewer.app
 [ -d "$app" ] || { echo "no app at $app" >&2; exit 1; }
 
-args=()
-[ -n "$server" ] && args+=(-server "$server")
-[ -n "$password" ] && args+=(-password "$password")
-# `${args[*]-}`, because `set -u` and the bash macOS ships call an empty array
-# unbound.
-echo "[run] open $app ${args[*]-}"
-if [ ${#args[@]} -eq 0 ]; then
-    open "$app"
+if [ -n "$server" ]; then
+    echo "[run] open $app --args -server $server"
+    open "$app" --args -server "$server"
 else
-    open "$app" --args "${args[@]}"
+    echo "[run] open $app"
+    open "$app"
 fi

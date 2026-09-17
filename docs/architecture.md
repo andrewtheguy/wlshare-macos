@@ -42,10 +42,16 @@ automated use.
 Only one thing is remembered on purpose. The host, the port and the user name
 are preferences; the password goes to the keychain, and only when the checkbox
 says so — a `defaults` plist is a file, and a password in one is a password in
-plain text. The preference keys are deliberately not `server`, `username` and
-`password`: those are the argument names, and `UserDefaults`' argument domain
-outranks anything written to the standard one, so a launch with arguments would
-otherwise poison what the form reads back.
+plain text. The preference keys are deliberately not `server` or `username`:
+those are the argument names, and `UserDefaults`' argument domain outranks
+anything written to the standard one, so a launch with arguments would otherwise
+poison what the form reads back.
+
+The password is not an argument name, because an argument list is in the shell's
+history and in everyone's `ps`. A `-server` launch takes the password remembered
+for that destination out of the keychain, and a destination with none — or one
+that is refused — ends up at the form, which is the only place a password is
+ever typed.
 
 A session ends where it began. A refused connection, a dropped one and
 **Disconnect** all put the form back up with the reason on it, and only then
