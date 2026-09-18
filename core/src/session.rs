@@ -525,22 +525,28 @@ impl Live {
     /// the framebuffer a device-pixel-for-device-pixel match, which is the
     /// whole of retina support.
     ///
+    /// A change of density is one `ClientDensity` carrying the size with it,
+    /// which the server applies as one output configuration. A size at an
+    /// unchanged density is a `SetDesktopSize`.
+    ///
     /// **One at a time.** The server applies both through
     /// wlr-output-management, whose configurations carry a serial the
     /// compositor bumps on every commit, so the second of two in flight is
-    /// cancelled and comes back as an invalid layout. The density goes first,
-    /// and the size waits in `held_size` for the `OutputScale` the extension
-    /// promises for every declaration — [`Live::released_by`] recognises it.
+    /// cancelled and comes back as an invalid layout. A size that changes while
+    /// a density is in flight waits in `held_size` for the `OutputScale` the
+    /// extension promises for every declaration — [`Live::released_by`]
+    /// recognises it.
     async fn ask_for<W: AsyncWrite + Unpin>(&mut self, writer: &mut Writer<W>, surface: Surface) -> anyhow::Result<()> {
         if !surface.is_usable() {
             return Ok(());
         }
         let size = (surface.width, surface.height);
         if self.asked_scale != Some(surface.scale) {
-            writer.send(&client::client_density(surface.scale)).await?;
+            writer.send(&client::client_density(surface.width, surface.height, surface.scale)).await?;
             self.asked_scale = Some(surface.scale);
+            self.asked_size = Some(size);
             self.awaiting_scale = true;
-            self.held_size = (self.asked_size != Some(size)).then_some(size);
+            self.held_size = None;
             return Ok(());
         }
         if self.awaiting_scale {
@@ -917,24 +923,34 @@ mod tests {
     /// has the compositor cancel the second configuration, and the desktop
     /// answers a perfectly good size with *invalid layout*.
     #[tokio::test]
-    async fn a_size_waits_for_the_density_it_goes_with_to_be_answered() {
+    async fn a_density_carries_its_size_and_a_resize_waits_for_its_answer() {
         let mut live = live();
         let mut writer = writer();
         let retina = Surface { width: 1600, height: 1200, scale: 2.0 };
 
         live.ask_for(&mut writer, retina).await.unwrap();
-        assert_eq!(sent(&mut writer), vec![ClientMsg::ClientDensity { fixed: to_fixed(2.0) }], "the density goes out alone");
-
-        // The OutputScale that answers every SetEncodings, carrying the scale
-        // the desktop is at now. Not the answer, so the size stays held.
-        live.handle(ServerMsg::OutputScale { width: 1024, height: 768, fixed: to_fixed(1.0) }, &mut writer).await.unwrap();
-        assert_eq!(sent(&mut writer), vec![]);
-
-        live.handle(ServerMsg::OutputScale { width: 1024, height: 768, fixed: to_fixed(2.0) }, &mut writer).await.unwrap();
         assert_eq!(
             sent(&mut writer),
-            vec![ClientMsg::SetDesktopSize { width: 1600, height: 1200, screens: vec![Screen::whole(1600, 1200)] }],
+            vec![ClientMsg::ClientDensity { width: 1600, height: 1200, fixed: to_fixed(2.0) }],
+            "the density carries the size, and nothing goes out beside it"
+        );
+
+        // The OutputScale that answers every SetEncodings, carrying the scale
+        // the desktop is at now, is not the answer: a resize still waits.
+        live.handle(ServerMsg::OutputScale { width: 1024, height: 768, fixed: to_fixed(1.0) }, &mut writer).await.unwrap();
+        live.ask_for(&mut writer, Surface { width: 1400, height: 1000, scale: 2.0 }).await.unwrap();
+        assert_eq!(sent(&mut writer), vec![]);
+
+        live.handle(ServerMsg::OutputScale { width: 1600, height: 1200, fixed: to_fixed(2.0) }, &mut writer).await.unwrap();
+        assert_eq!(
+            sent(&mut writer),
+            vec![ClientMsg::SetDesktopSize { width: 1400, height: 1000, screens: vec![Screen::whole(1400, 1000)] }],
             "the answer releases the size"
+        );
+        live.ask_for(&mut writer, retina).await.unwrap();
+        assert_eq!(
+            sent(&mut writer),
+            vec![ClientMsg::SetDesktopSize { width: 1600, height: 1200, screens: vec![Screen::whole(1600, 1200)] }]
         );
 
         // The same surface again is a window redrawing, not a window changing.
@@ -958,12 +974,13 @@ mod tests {
         let mut writer = writer();
 
         live.ask_for(&mut writer, Surface { width: 1600, height: 1200, scale: 2.0 }).await.unwrap();
-        assert_eq!(sent(&mut writer), vec![ClientMsg::ClientDensity { fixed: to_fixed(2.0) }]);
+        assert_eq!(sent(&mut writer), vec![ClientMsg::ClientDensity { width: 1600, height: 1200, fixed: to_fixed(2.0) }]);
 
+        live.ask_for(&mut writer, Surface { width: 1500, height: 1100, scale: 2.0 }).await.unwrap();
         live.ask_for(&mut writer, Surface { width: 1400, height: 1000, scale: 2.0 }).await.unwrap();
         assert_eq!(sent(&mut writer), vec![], "a size at the density still in flight waits with it");
 
-        live.handle(ServerMsg::OutputScale { width: 1024, height: 768, fixed: to_fixed(2.0) }, &mut writer).await.unwrap();
+        live.handle(ServerMsg::OutputScale { width: 1600, height: 1200, fixed: to_fixed(2.0) }, &mut writer).await.unwrap();
         assert_eq!(
             sent(&mut writer),
             vec![ClientMsg::SetDesktopSize { width: 1400, height: 1000, screens: vec![Screen::whole(1400, 1000)] }],
