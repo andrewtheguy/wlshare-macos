@@ -110,20 +110,23 @@ that.
 - The window's backing store is `width × height` device pixels at a scale — 2 on
   a retina display. `DesktopView` posts that on every resize and every backing
   change.
-- The session asks for a desktop drawn at that scale (`ClientDensity`) and that
-  many pixels across (`SetDesktopSize`).
+- The session asks for a desktop drawn at that scale and that many pixels
+  across. A change of scale is one `ClientDensity`, which carries the size with
+  it and which the server applies as one output configuration; a change of size
+  at the same scale is a `SetDesktopSize`.
 - The framebuffer is then a device-pixel-for-device-pixel match with the window,
   and the remote desktop's own widgets are drawn at the density the display has.
 
 Two things about this were learned the hard way and are worth keeping written
 down:
 
-- **The two requests must not be in flight together.** The server applies both
+- **Two requests must not be in flight together.** The server applies both
   through wlr-output-management, whose configurations carry a serial the
   compositor bumps on every commit, so the second of two is cancelled and comes
   back as `invalid layout` — a perfectly good size refused for no visible
-  reason. The density goes first and the size waits for the `OutputScale` the
-  extension promises for every declaration. Recognising *that* answer and not
+  reason. A size that changes while a density is in flight waits for the
+  `OutputScale` the extension promises for every declaration, and then goes out
+  as a `SetDesktopSize`. Recognising *that* answer and not
   the one every `SetEncodings` is answered with is what `Live::released_by`
   is for.
 - **The scale and the size must come from the same place.** `postSurface` reads
