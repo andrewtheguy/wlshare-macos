@@ -35,12 +35,14 @@ typedef struct WlshareClient WlshareClient;
 #define WLSHARE_BUTTON_MIDDLE 2
 #define WLSHARE_BUTTON_RIGHT 4
 
-/* Where a session has got to, and what the desktop looks like. */
+/* Where a session has got to, and what the desktop looks like. `audio` is the
+ * desktop's sound turned on: asked for, and the server has it. */
 typedef struct {
     int32_t state;
     uint32_t width;
     uint32_t height;
     double scale;
+    bool audio;
 } WlshareStatus;
 
 /* The framebuffer, as it is for the length of one callback. `pixels` is
@@ -79,9 +81,10 @@ typedef void (*WlshareCursorFn)(void *ctx, const WlshareCursor *cursor);
 typedef void (*WlshareClipboardFn)(void *ctx, uint64_t generation, const uint8_t *text, size_t len);
 
 /* Start a session. Never null: a connection that fails does so in the status.
- * An empty password asks for the None security type, any other for RSA-AES. */
+ * An empty password asks for the None security type, any other for RSA-AES.
+ * `audio` asks for the desktop's sound. */
 WlshareClient *wlshare_client_connect(const char *host, uint16_t port, const char *username, const char *password,
-                                      uint16_t surface_width, uint16_t surface_height, double scale);
+                                      bool audio, uint16_t surface_width, uint16_t surface_height, double scale);
 
 /* End the session and wait for its thread. The frame callback is cleared
  * first, so nothing calls back into the app after this returns. */
@@ -116,6 +119,11 @@ void wlshare_client_set_clipboard(const WlshareClient *client, const uint8_t *te
  * UTF-8 — null and 0 before the desktop has provided any. A generation the
  * window has seen is text it has already taken. */
 void wlshare_client_with_clipboard(const WlshareClient *client, WlshareClipboardFn visit, void *ctx);
+
+/* The next `frames` of the desktop's sound, 48 kHz stereo, into `left` and
+ * `right` — silence where there is none yet. For the audio device's render
+ * callback: the lock it takes is held for one copy. */
+void wlshare_client_read_audio(const WlshareClient *client, float *left, float *right, size_t frames);
 
 /* The pointer: the RFB button mask, and a position in the window's device
  * pixels. */

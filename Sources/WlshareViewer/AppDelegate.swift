@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var view: DesktopView?
     private var client: Client?
     private var clipboard: ClipboardSync?
+    private var audio: AudioOutput?
     private let banner = NSTextField(labelWithString: "")
     private let form = ConnectWindow()
     /// The last destination tried, which is what the form comes back filled
@@ -52,6 +53,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         // Ends the session and joins its thread while there is still a window
         // for its callbacks to have reached.
+        audio?.stop()
+        audio = nil
         client = nil
     }
 
@@ -87,6 +90,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             port: destination.port,
             username: destination.username,
             password: destination.password,
+            audio: destination.audio,
             surface: Client.Surface(
                 width: UInt16(clamping: Int(backing.width)),
                 height: UInt16(clamping: Int(backing.height)),
@@ -119,6 +123,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// while another is on screen is not the last one.
     private func close() {
         clipboard = nil
+        // Before the client: the audio device's thread reads from it until the
+        // engine has stopped.
+        audio?.stop()
+        audio = nil
         client = nil
         banner.removeFromSuperview()
         // Ordered out rather than closed: `close()` runs the window out with an
@@ -142,6 +150,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             banner.stringValue = ""
             let name = status.name.isEmpty ? window.title : status.name
             window.title = "\(name) — \(status.desktop.width)×\(status.desktop.height) @ \(scale(status.scale))"
+            // Not before the server has said it has sound: a session without it
+            // keeps the Mac's audio device out of it.
+            if status.audio, audio == nil {
+                audio = AudioOutput(client: client)
+            }
         case .closed:
             // Back to the form with the reason on it, and only then take the
             // window away, so the app is never down to no windows at all.

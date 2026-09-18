@@ -23,6 +23,7 @@ final class ConnectWindow: NSObject, NSWindowDelegate {
     private let username = NSTextField()
     private let password = NSSecureTextField()
     private let remember = NSButton(checkboxWithTitle: "Remember the password", target: nil, action: nil)
+    private let audio = NSButton(checkboxWithTitle: "Play the desktop's sound", target: nil, action: nil)
     private let message = NSTextField(labelWithString: "")
 
     override init() {
@@ -52,6 +53,7 @@ final class ConnectWindow: NSObject, NSWindowDelegate {
             [label("User name:"), username],
             [label("Password:"), password],
             [NSGridCell.emptyContentView, remember],
+            [NSGridCell.emptyContentView, audio],
         ])
         form.column(at: 0).xPlacement = .trailing
         form.rowAlignment = .firstBaseline
@@ -99,6 +101,7 @@ final class ConnectWindow: NSObject, NSWindowDelegate {
         username.stringValue = destination.username
         password.stringValue = destination.password
         remember.state = destination.remember ? .on : .off
+        audio.state = destination.audio ? .on : .off
         message.stringValue = error ?? ""
         message.isHidden = error == nil
 
@@ -129,7 +132,8 @@ final class ConnectWindow: NSObject, NSWindowDelegate {
             port: port,
             username: username.stringValue,
             password: password.stringValue,
-            remember: remember.state == .on
+            remember: remember.state == .on,
+            audio: audio.state == .on
         )
         destination.save()
         hide()

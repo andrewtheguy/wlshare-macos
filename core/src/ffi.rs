@@ -36,6 +36,8 @@ pub struct WlshareStatus {
     pub height: u32,
     /// The scale the server says it draws the desktop at.
     pub scale: f64,
+    /// Whether the desktop's sound is on: asked for, and the server has it.
+    pub audio: bool,
 }
 
 /// The framebuffer, as it is for the length of one callback.
@@ -128,17 +130,19 @@ unsafe fn copy_out(from: &str, out: *mut c_char, cap: usize) -> usize {
 /// # Safety
 /// The four strings are NUL-terminated UTF-8, or null for empty. An empty
 /// password asks for the `None` security type and any other asks for RSA-AES.
+/// `audio` asks for the desktop's sound.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn wlshare_client_connect(
     host: *const c_char,
     port: u16,
     username: *const c_char,
     password: *const c_char,
+    audio: bool,
     surface_width: u16,
     surface_height: u16,
     scale: f64,
 ) -> *mut Client {
-    let config = unsafe { Config { host: text(host), port, username: text(username), password: text(password) } };
+    let config = unsafe { Config { host: text(host), port, username: text(username), password: text(password), audio } };
     let surface = Surface { width: surface_width, height: surface_height, scale };
     Box::into_raw(Box::new(Client::connect(config, surface)))
 }
@@ -172,6 +176,7 @@ pub unsafe extern "C" fn wlshare_client_status(client: *const Client, out: *mut 
             width: u32::from(width),
             height: u32::from(height),
             scale: status.scale,
+            audio: status.audio,
         };
     }
 }
@@ -310,6 +315,28 @@ pub unsafe extern "C" fn wlshare_client_with_clipboard(client: *const Client, vi
         Some(text) => visit(ctx, generation, text.as_ptr(), text.len()),
         None => visit(ctx, generation, std::ptr::null(), 0),
     });
+}
+
+/// The next `frames` of the desktop's sound, as 48 kHz stereo into `left` and
+/// `right` — silence where there is none yet, or for a null client. For the
+/// audio device's render callback: the lock it takes is held for the copy.
+///
+/// # Safety
+/// `client` is live or null, and `left` and `right` each have room for
+/// `frames` floats.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wlshare_client_read_audio(client: *const Client, left: *mut f32, right: *mut f32, frames: usize) {
+    if left.is_null() || right.is_null() || frames == 0 {
+        return;
+    }
+    let (left, right) = unsafe { (std::slice::from_raw_parts_mut(left, frames), std::slice::from_raw_parts_mut(right, frames)) };
+    match unsafe { client.as_ref() } {
+        Some(client) => client.read_audio(left, right),
+        None => {
+            left.fill(0.0);
+            right.fill(0.0);
+        }
+    }
 }
 
 /// The pointer: the RFB button mask, and a position in the window's device
