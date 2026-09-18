@@ -103,8 +103,9 @@ already does makes uncommon.
 wlshare's VP9 encoding is the whole framebuffer as one stream: every update is
 one rectangle covering it, and each frame is coded against the frames before
 it, so one decoder, made at the first frame, takes them all in order. What the
-stream is — 8-bit 4:4:4 at BT.601 studio swing, a fixed quantizer, keyframes
-only at a new size or a full repaint — is the server's and `wlshare-rfb`'s; see
+stream is — 8-bit 4:4:4 at BT.601 studio swing, a quantizer the server moves
+between `vp9_quality` and `vp9_quality_min` as the link keeps up or falls
+behind, keyframes only at a new size or a full repaint — is the server's and `wlshare-rfb`'s; see
 wlshare's `docs/architecture.md`. The decoder writes the same `B, G, R, X` as
 every other rectangle, so the path from the framebuffer to the screen does not
 know which encoding filled it.

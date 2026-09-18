@@ -29,8 +29,8 @@ typedef struct WlshareClient WlshareClient;
 #define WLSHARE_STATE_READY 1
 #define WLSHARE_STATE_CLOSED 2
 
-/* How the desktop's pixels arrive: wlshare's VP9 stream, 4:4:4 at the quality
- * the server fixes, or exact ZRLE. */
+/* How the desktop's pixels arrive: wlshare's VP9 stream, 4:4:4 at a quality
+ * the server lowers while the link is behind, or exact ZRLE. */
 #define WLSHARE_ENCODING_VP9 0
 #define WLSHARE_ENCODING_ZRLE 1
 
