@@ -160,7 +160,7 @@ pub unsafe extern "C" fn wlshare_client_close(client: *mut Client) {
 pub unsafe extern "C" fn wlshare_client_status(client: *const Client, out: *mut WlshareStatus) {
     let (Some(client), false) = (unsafe { client.as_ref() }, out.is_null()) else { return };
     let status = client.status();
-    let (width, height) = client.with_frame(|fb, _| (u32::from(fb.width()), u32::from(fb.height())));
+    let (width, height) = client.desktop_size();
     unsafe {
         *out = WlshareStatus {
             state: match status.state {
@@ -168,8 +168,8 @@ pub unsafe extern "C" fn wlshare_client_status(client: *const Client, out: *mut 
                 State::Ready => WLSHARE_STATE_READY,
                 State::Closed => WLSHARE_STATE_CLOSED,
             },
-            width,
-            height,
+            width: u32::from(width),
+            height: u32::from(height),
             scale: status.scale,
         };
     }
