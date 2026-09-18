@@ -7,14 +7,15 @@
 //!
 //! What it speaks, and why:
 //!
-//! - **VP9 or ZRLE**, as the window chose. VP9 is wlshare's own encoding for a
-//!   desktop client: the whole framebuffer as one 4:4:4 stream at the quality
-//!   the server fixes, decoded by one decoder for the connection off the
-//!   framebuffer's lock and copied in under it. ZRLE is exact, on one inflate
-//!   stream for the whole connection, decoded straight into the framebuffer;
-//!   it is listed behind VP9 too, and is what a server without VP9 sends.
-//!   Raw is listed because the server sends it before the first `SetEncodings`
-//!   and there is no arranging otherwise.
+//! - **VP9 or ZRLE**, as the window chose, and nothing else. VP9 is wlshare's
+//!   own encoding for a desktop client: the whole framebuffer as one 4:4:4
+//!   stream at the quality the server sets, decoded by one decoder for
+//!   the connection off the framebuffer's lock and copied in under it. It is
+//!   listed alone, and pixels in any other encoding end the session: a server
+//!   without VP9 is an error to be told about, not a picture to fall back to.
+//!   ZRLE is exact, on one inflate stream for the whole connection, decoded
+//!   straight into the framebuffer, with Raw listed behind it because the RFC
+//!   has every server able to send it.
 //! - **The server's own pixel format.** Asking for `XRGB8888` is asking for the
 //!   framebuffer's bytes as they are, which is also what Metal reads; no pixel
 //!   is swizzled anywhere between the compositor and the screen.
@@ -70,15 +71,13 @@ use wlshare_rfb::{
 use crate::audio::{self, Playback};
 use crate::framebuffer::Framebuffer;
 
-/// Listed in the client's order of preference, and deliberately short: a
-/// pseudo-encoding here is a promise to understand what it turns on, and
-/// [`Live::apply`] ends the connection over a rectangle nobody asked for.
-/// [`ENCODING_VP9`] goes in front of them when the window chose it, and
+/// The pseudo-encodings every session lists, and deliberately few: each is a
+/// promise to understand what it turns on, and [`Live::apply`] ends the
+/// connection over a rectangle nobody asked for. The pixel encodings go in
+/// front of them — [`ENCODING_VP9`] alone, or ZRLE and Raw — and
 /// [`ENCODING_AUDIO`] follows them when the window asked for sound
 /// ([`encodings`]).
 const ENCODINGS: &[i32] = &[
-    ENCODING_ZRLE,
-    ENCODING_RAW,
     ENCODING_CURSOR_WITH_ALPHA,
     ENCODING_CURSOR,
     ENCODING_EXTENDED_DESKTOP_SIZE,
@@ -90,9 +89,10 @@ const ENCODINGS: &[i32] = &[
 ];
 
 fn encodings(encoding: Encoding, audio: bool) -> Vec<i32> {
-    let mut encodings = Vec::with_capacity(ENCODINGS.len() + 2);
-    if encoding == Encoding::Vp9 {
-        encodings.push(ENCODING_VP9);
+    let mut encodings = Vec::with_capacity(ENCODINGS.len() + 3);
+    match encoding {
+        Encoding::Vp9 => encodings.push(ENCODING_VP9),
+        Encoding::Zrle => encodings.extend_from_slice(&[ENCODING_ZRLE, ENCODING_RAW]),
     }
     encodings.extend_from_slice(ENCODINGS);
     if audio {
@@ -130,8 +130,8 @@ pub struct Config {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Encoding {
     /// wlshare's VP9 encoding: the whole desktop as one 4:4:4 stream at the
-    /// quality the server fixes. Small and smooth when it moves, not exact.
-    /// ZRLE is listed behind it, for a server that has no VP9.
+    /// quality the server sets. Small and smooth when it moves, not exact.
+    /// Nothing else is listed, so a server without it ends the session.
     Vp9,
     /// ZRLE: every pixel exactly as the desktop drew it.
     Zrle,
@@ -194,14 +194,11 @@ pub struct Status {
     /// server's capture runs whether the desktop plays anything or not, so
     /// this counts up for as long as the sound is on.
     pub sound: u64,
-    /// Whether the desktop is arriving as VP9: asked for, and a frame of it
-    /// decoded. A server without the encoding sends ZRLE and this stays false.
-    pub vp9: bool,
 }
 
 impl Default for Status {
     fn default() -> Self {
-        Self { state: State::Connecting, error: None, name: String::new(), scale: 1.0, frames: 0, audio: false, sound: 0, vp9: false }
+        Self { state: State::Connecting, error: None, name: String::new(), scale: 1.0, frames: 0, audio: false, sound: 0 }
     }
 }
 
@@ -841,6 +838,9 @@ impl Live {
             RectBody::Audio => "Audio",
         });
         match body {
+            RectBody::Raw(_) | RectBody::Zrle(_) if self.encoding == Encoding::Vp9 => {
+                bail!("the server does not have wlshare's VP9 encoding — it is not wlshare, or a wlshare older than 0.0.30; choose ZRLE to connect to it")
+            }
             RectBody::Raw(pixels) => {
                 let mut fb = self.shared.framebuffer.lock().unwrap();
                 if !fb.put_raw(x, y, width, height, &pixels) {
@@ -927,7 +927,6 @@ impl Live {
         drop(fb);
         if first {
             log::info!("the desktop arrives as VP9");
-            self.shared.status.lock().unwrap().vp9 = true;
         }
         Ok(())
     }
@@ -1216,16 +1215,38 @@ mod tests {
     fn sound_is_listed_only_when_the_window_asked_for_it() {
         assert!(!encodings(Encoding::Zrle, false).contains(&ENCODING_AUDIO));
         assert_eq!(encodings(Encoding::Zrle, true).last(), Some(&ENCODING_AUDIO));
-        assert_eq!(&encodings(Encoding::Zrle, true)[..ENCODINGS.len()], ENCODINGS);
+        assert_eq!(&encodings(Encoding::Zrle, true)[2..2 + ENCODINGS.len()], ENCODINGS);
     }
 
-    /// VP9 goes first when chosen, with everything else behind it — ZRLE
-    /// included, for a server that does not have it — and not at all when not.
+    /// VP9 goes alone when chosen, with no pixel encoding behind it to fall
+    /// back to — and not at all when not.
     #[test]
-    fn vp9_is_listed_first_when_the_window_chose_it() {
-        assert_eq!(encodings(Encoding::Vp9, false)[0], ENCODING_VP9);
-        assert_eq!(&encodings(Encoding::Vp9, true)[1..=ENCODINGS.len()], ENCODINGS);
-        assert!(!encodings(Encoding::Zrle, true).contains(&ENCODING_VP9));
+    fn vp9_is_listed_alone_when_the_window_chose_it() {
+        let vp9 = encodings(Encoding::Vp9, true);
+        assert_eq!(vp9[0], ENCODING_VP9);
+        assert_eq!(&vp9[1..=ENCODINGS.len()], ENCODINGS);
+        assert!(!vp9.contains(&ENCODING_ZRLE) && !vp9.contains(&ENCODING_RAW));
+        let zrle = encodings(Encoding::Zrle, true);
+        assert_eq!(&zrle[..2], [ENCODING_ZRLE, ENCODING_RAW]);
+        assert!(!zrle.contains(&ENCODING_VP9));
+    }
+
+    /// A server without VP9 answers a list that names only it with Raw or
+    /// ZRLE, and that ends the session rather than being shown.
+    #[test]
+    fn pixels_other_than_vp9_end_a_vp9_session() {
+        let mut live = live();
+        live.encoding = Encoding::Vp9;
+        live.shared.framebuffer.lock().unwrap().resize(4, 2);
+        live.shared.framebuffer.lock().unwrap().take_damage();
+        let raw = client::Rect { x: 0, y: 0, width: 4, height: 2, body: RectBody::Raw(vec![0x7F; 4 * 2 * 4]) };
+        let error = live.apply(raw.clone()).err().expect("Raw in a VP9 session");
+        assert!(error.to_string().contains("choose ZRLE"), "{error}");
+        assert!(live.apply(client::Rect { body: RectBody::Zrle(vec![0; 8]), ..raw.clone() }).is_err());
+        assert_eq!(live.shared.framebuffer.lock().unwrap().take_damage(), None, "nothing was drawn");
+
+        live.encoding = Encoding::Zrle;
+        assert!(live.apply(raw).is_ok(), "the same Raw rectangle is fine where it was listed");
     }
 
     /// A VP9 stream as the daemon sends it, frame by frame, lands in the
@@ -1254,9 +1275,7 @@ mod tests {
             }
         }
         assert_eq!(live.shared.framebuffer.lock().unwrap().take_damage(), Some(Region { x: 0, y: 0, width: 64, height: 32 }));
-        let status = live.shared.status.lock().unwrap();
-        assert!(status.vp9);
-        assert_eq!(status.frames, 2);
+        assert_eq!(live.shared.status.lock().unwrap().frames, 2);
         assert_eq!(sent(&mut writer), vec![], "a frame is not answered");
     }
 
@@ -1269,7 +1288,6 @@ mod tests {
         live.encoding = Encoding::Vp9;
         assert!(live.apply(rect(8, 56)).is_err(), "a VP9 frame is the whole framebuffer");
         assert!(live.apply(rect(0, 64)).is_err(), "and one that is not a frame is an error, not a panic");
-        assert!(!live.shared.status.lock().unwrap().vp9);
     }
 
     /// The announcement is answered with the format and an enable, once; the

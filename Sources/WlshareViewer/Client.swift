@@ -95,13 +95,10 @@ final class Client: @unchecked Sendable {
         var error: String?
         /// The desktop's sound is on: asked for, and the server has it.
         var audio: Bool
-        /// The desktop is arriving as VP9: asked for, and the server sent it
-        /// rather than falling back to ZRLE.
-        var vp9: Bool
     }
 
     var status: Status {
-        var raw = WlshareStatus(state: 0, width: 0, height: 0, scale: 1, audio: false, vp9: false)
+        var raw = WlshareStatus(state: 0, width: 0, height: 0, scale: 1, audio: false)
         wlshare_client_status(handle, &raw)
         let state: State =
             switch raw.state {
@@ -116,8 +113,7 @@ final class Client: @unchecked Sendable {
             scale: raw.scale,
             name: string { wlshare_client_name(handle, $0, $1) },
             error: error.isEmpty ? nil : error,
-            audio: raw.audio,
-            vp9: raw.vp9
+            audio: raw.audio
         )
     }
 

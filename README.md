@@ -6,9 +6,11 @@ speaks the whole RFB session.
 
 **Scope:** the screen, the keyboard, the pointer, retina, the clipboard and the
 desktop's sound. The screen arrives as wlshare's VP9 stream — the whole desktop,
-4:4:4, at the quality the server's `vp9_quality` fixes — or, when the connect
-form's **Encoding** says so, as exact ZRLE; the window's title ends in `· VP9`
-while VP9 is what is arriving. The desktop is asked to be exactly the window's backing store,
+4:4:4, at the server's `vp9_quality` or, while the link is behind, lower, down
+to its `vp9_quality_min` — or, when the connect
+form's **Encoding** says so, as exact ZRLE. VP9 is asked for alone: a server
+without it ends the session with an error instead of sending ZRLE, and the
+window's title ends in `· VP9` when the form chose it. The desktop is asked to be exactly the window's backing store,
 drawn at the window's density, so what is on screen is one device pixel per
 desktop pixel and never resampled. The clipboard is text, both ways, as UTF-8.
 The sound is wlshare's lossless FLAC stream, played on the Mac's default output,

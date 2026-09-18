@@ -26,8 +26,8 @@ and arrives here as a bumped tag.
 ## Scope
 
 Screen, keyboard, pointer, retina, clipboard, and the desktop's sound when it
-is asked for. The client lists wlshare's VP9 encoding first — unless the form
-says ZRLE — then ZRLE, Raw, Cursor, Cursor With Alpha,
+is asked for. The client lists wlshare's VP9 encoding alone as its pixel
+encoding — or, when the form says ZRLE, ZRLE and Raw — then Cursor, Cursor With Alpha,
 DesktopSize, ExtendedDesktopSize, Fence, ContinuousUpdates, the density
 extension, Extended Clipboard and — only when the form's sound checkbox is
 ticked — the audio extension, and nothing else. The server never offers camera,
@@ -103,17 +103,21 @@ already does makes uncommon.
 wlshare's VP9 encoding is the whole framebuffer as one stream: every update is
 one rectangle covering it, and each frame is coded against the frames before
 it, so one decoder, made at the first frame, takes them all in order. What the
-stream is — 8-bit 4:4:4 at BT.601 studio swing, a fixed quantizer, keyframes
-only at a new size or a full repaint — is the server's and `wlshare-rfb`'s; see
+stream is — 8-bit 4:4:4 at BT.601 studio swing, a quantizer the server moves
+between `vp9_quality` and `vp9_quality_min` as the link keeps up or falls
+behind, keyframes only at a new size or a full repaint — is the server's and `wlshare-rfb`'s; see
 wlshare's `docs/architecture.md`. The decoder writes the same `B, G, R, X` as
 every other rectangle, so the path from the framebuffer to the screen does not
 know which encoding filled it.
 
 It is the default, because it is what makes a desktop that moves cheap to
 watch, and it is not exact: a desktop that settles is shown at the server's
-quality, not pixel for pixel. **ZRLE** on the form is the exact picture, and is
-also what a server without the encoding sends — which is why the title names
-VP9 only once a VP9 frame has arrived.
+quality, not pixel for pixel. **ZRLE** on the form is the exact picture. VP9 is
+never a request ZRLE answers: it is listed with no pixel encoding behind it, and
+a Raw or ZRLE rectangle in a VP9 session — what any server without the
+encoding, a generic VNC server or a wlshare older than it, sends to a list it
+does not understand — ends the session with an error that says to choose ZRLE, rather than showing a picture that is not the one chosen. The
+title's `· VP9` therefore follows the form.
 
 A frame is decoded with the framebuffer's lock let go, into a buffer of the
 session's own, and copied in under it: a whole-desktop decode is milliseconds,
