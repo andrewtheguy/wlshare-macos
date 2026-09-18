@@ -76,6 +76,7 @@ typedef struct {
 typedef void (*WlshareWakeFn)(void *ctx);
 typedef void (*WlshareFrameFn)(void *ctx, const WlshareFrame *frame);
 typedef void (*WlshareCursorFn)(void *ctx, const WlshareCursor *cursor);
+typedef void (*WlshareClipboardFn)(void *ctx, uint64_t generation, const uint8_t *text, size_t len);
 
 /* Start a session. Never null: a connection that fails does so in the status.
  * An empty password asks for the None security type, any other for RSA-AES. */
@@ -106,6 +107,15 @@ void wlshare_client_damage_all(const WlshareClient *client);
 
 /* Show `visit` the pointer's shape. */
 void wlshare_client_with_cursor(const WlshareClient *client, WlshareCursorFn visit, void *ctx);
+
+/* The Mac's clipboard, `len` bytes of UTF-8, for the desktop. It is sent only
+ * when the desktop asks for it. */
+void wlshare_client_set_clipboard(const WlshareClient *client, const uint8_t *text, size_t len);
+
+/* Show `visit` the desktop's clipboard: which arrival it is, and `len` bytes of
+ * UTF-8 — null and 0 before the desktop has provided any. A generation the
+ * window has seen is text it has already taken. */
+void wlshare_client_with_clipboard(const WlshareClient *client, WlshareClipboardFn visit, void *ctx);
 
 /* The pointer: the RFB button mask, and a position in the window's device
  * pixels. */

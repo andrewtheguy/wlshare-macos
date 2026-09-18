@@ -12,9 +12,9 @@
 //! to [`Client::on_frame`] and reads the pixels through [`Client::with_frame`],
 //! which holds the framebuffer's lock for exactly as long as the upload takes.
 //!
-//! **Scope.** Screen, keyboard, pointer and retina. Audio, camera, microphone,
-//! clipboard and picking an output are wlshare extensions this client does not
-//! list, so the server never sends them.
+//! **Scope.** Screen, keyboard, pointer, retina and the clipboard. Audio,
+//! camera, microphone and picking an output are wlshare extensions this client
+//! does not list, so the server never sends them.
 
 pub mod framebuffer;
 pub mod keysym;
@@ -135,6 +135,21 @@ impl Client {
         self.send(Command::Surface(surface));
     }
 
+    /// The Mac's clipboard, for the desktop. The window gives it when it has
+    /// changed and the window is where the person is — the desktop is sent only
+    /// what it was given here, and only when it asks.
+    pub fn clipboard(&self, text: String) {
+        self.send(Command::Clipboard(text));
+    }
+
+    /// Show `visit` the desktop's clipboard and which arrival it is. A
+    /// generation the window has seen is text it has already taken; `None` is
+    /// a desktop that has provided nothing yet.
+    pub fn with_clipboard<T>(&self, visit: impl FnOnce(u64, Option<&str>) -> T) -> T {
+        let clipboard = self.shared.clipboard.lock().unwrap();
+        visit(clipboard.0, clipboard.1.as_deref())
+    }
+
     /// The wheel notches a scroll comes to ([`Wheel::scroll`]), gathered across
     /// events. Each is a button the caller clicks — press with the buttons it
     /// already holds, then release.
@@ -197,6 +212,7 @@ mod tests {
         let client = Client::connect(nowhere(), Surface { width: 800, height: 600, scale: 2.0 });
         client.pointer(BUTTON_LEFT, 10, 10);
         client.key(true, 0x61);
+        client.clipboard("画面".to_owned());
         client.surface(Surface { width: 400, height: 300, scale: 1.0 });
         assert_eq!(client.wheel(0.0, 1.0, false), vec![WHEEL_UP]);
         // Nothing has been drawn, so there is no damage and no cursor.
@@ -208,6 +224,7 @@ mod tests {
             assert_eq!(generation, 0);
             assert!(image.is_none());
         });
+        client.with_clipboard(|generation, text| assert_eq!((generation, text), (0, None)));
     }
 
     /// A server that accepts the socket and then says nothing is the worst

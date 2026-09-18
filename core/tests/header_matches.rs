@@ -34,6 +34,7 @@ const TYPES: &[(&str, &str)] = &[
     ("Option<WlshareWakeFn>", "WlshareWakeFn"),
     ("WlshareFrameFn", "WlshareFrameFn"),
     ("WlshareCursorFn", "WlshareCursorFn"),
+    ("WlshareClipboardFn", "WlshareClipboardFn"),
 ];
 
 /// A declaration, in the one spelling both parsers produce: the C type with
