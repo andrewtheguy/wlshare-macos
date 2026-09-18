@@ -29,6 +29,11 @@ typedef struct WlshareClient WlshareClient;
 #define WLSHARE_STATE_READY 1
 #define WLSHARE_STATE_CLOSED 2
 
+/* How the desktop's pixels arrive: wlshare's VP9 stream, 4:4:4 at the quality
+ * the server fixes, or exact ZRLE. */
+#define WLSHARE_ENCODING_VP9 0
+#define WLSHARE_ENCODING_ZRLE 1
+
 /* The three real buttons of the RFB button mask; the wheel's four come out of
  * wlshare_client_wheel. */
 #define WLSHARE_BUTTON_LEFT 1
@@ -36,13 +41,15 @@ typedef struct WlshareClient WlshareClient;
 #define WLSHARE_BUTTON_RIGHT 4
 
 /* Where a session has got to, and what the desktop looks like. `audio` is the
- * desktop's sound turned on: asked for, and the server has it. */
+ * desktop's sound turned on: asked for, and the server has it. `vp9` is the
+ * desktop arriving as VP9: asked for, and the server sent it rather than ZRLE. */
 typedef struct {
     int32_t state;
     uint32_t width;
     uint32_t height;
     double scale;
     bool audio;
+    bool vp9;
 } WlshareStatus;
 
 /* The framebuffer, as it is for the length of one callback. `pixels` is
@@ -82,9 +89,11 @@ typedef void (*WlshareClipboardFn)(void *ctx, uint64_t generation, const uint8_t
 
 /* Start a session. Never null: a connection that fails does so in the status.
  * An empty password asks for the None security type, any other for RSA-AES.
- * `audio` asks for the desktop's sound. */
+ * `audio` asks for the desktop's sound. `encoding` is a WLSHARE_ENCODING_*
+ * value; anything else is VP9. */
 WlshareClient *wlshare_client_connect(const char *host, uint16_t port, const char *username, const char *password,
-                                      bool audio, uint16_t surface_width, uint16_t surface_height, double scale);
+                                      bool audio, uint8_t encoding, uint16_t surface_width, uint16_t surface_height,
+                                      double scale);
 
 /* End the session and wait for its thread. The frame callback is cleared
  * first, so nothing calls back into the app after this returns. */

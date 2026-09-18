@@ -16,8 +16,9 @@
 //! buffer the Mac's audio device takes from through [`Client::read_audio`], on
 //! its own clock.
 //!
-//! **Scope.** Screen, keyboard, pointer, retina, the clipboard and the
-//! desktop's sound. Camera, microphone and picking an output are wlshare
+//! **Scope.** Screen — as wlshare's VP9 stream or as exact ZRLE, whichever the
+//! window chose — keyboard, pointer, retina, the clipboard and the desktop's
+//! sound. Camera, microphone and picking an output are wlshare
 //! extensions this client does not list, so the server never sends them.
 
 pub mod audio;
@@ -34,7 +35,7 @@ use std::thread::JoinHandle;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 
 pub use framebuffer::{Framebuffer, Region};
-pub use session::{Command, Config, Shared, State, Status, Surface};
+pub use session::{Command, Config, Encoding, Shared, State, Status, Surface};
 pub use wheel::{WHEEL_DOWN, WHEEL_LEFT, WHEEL_RIGHT, WHEEL_UP, Wheel};
 
 /// The three real buttons of the RFB button mask. The four above them are the
@@ -195,7 +196,7 @@ mod tests {
     fn nowhere() -> Config {
         // Port 0 never connects, which is the point: the session must fail into
         // the status rather than take the thread down with it.
-        Config { host: "127.0.0.1".to_owned(), port: 0, username: String::new(), password: String::new(), audio: false }
+        Config { host: "127.0.0.1".to_owned(), port: 0, username: String::new(), password: String::new(), audio: false, encoding: Encoding::Zrle }
     }
 
     #[test]
@@ -251,7 +252,7 @@ mod tests {
         // session is left waiting for the server's version.
         let accept = std::thread::spawn(move || listener.accept().expect("the client's connection").0);
 
-        let config = Config { host: "127.0.0.1".to_owned(), port, username: String::new(), password: String::new(), audio: false };
+        let config = Config { host: "127.0.0.1".to_owned(), port, username: String::new(), password: String::new(), audio: false, encoding: Encoding::Zrle };
         let client = Client::connect(config, Surface { width: 800, height: 600, scale: 2.0 });
         let _socket = accept.join().expect("the accepting thread");
 
@@ -268,7 +269,7 @@ mod tests {
         let client = Client::connect(nowhere(), Surface { width: 800, height: 600, scale: 2.0 });
         client.shared.framebuffer.lock().unwrap().resize(64, 48);
 
-        let mut status = ffi::WlshareStatus { state: 0, width: 0, height: 0, scale: 0.0, audio: false };
+        let mut status = ffi::WlshareStatus { state: 0, width: 0, height: 0, scale: 0.0, audio: false, vp9: false };
         unsafe { ffi::wlshare_client_status(&raw const client, &raw mut status) };
         assert_eq!((status.width, status.height), (64, 48));
 

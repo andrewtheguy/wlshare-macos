@@ -1,8 +1,8 @@
 import AppKit
 
-/// Where a packaged app starts: a form for the host, the port, the user name
-/// and the password, for someone who opened the app from the Finder and has no
-/// command line to put them on.
+/// Where a packaged app starts: a form for the host, the port, the user name,
+/// the password and the encoding, for someone who opened the app from the
+/// Finder and has no command line to put them on.
 ///
 /// It is also where a session ends up — a refused or dropped connection brings
 /// this back with the reason on it, so there is somewhere to correct and retry.
@@ -13,7 +13,7 @@ final class ConnectWindow: NSObject, NSWindowDelegate {
     var onConnect: ((Destination) -> Void)?
 
     private let panel = NSWindow(
-        contentRect: NSRect(x: 0, y: 0, width: 380, height: 220),
+        contentRect: NSRect(x: 0, y: 0, width: 380, height: 250),
         styleMask: [.titled, .closable],
         backing: .buffered,
         defer: false
@@ -22,6 +22,12 @@ final class ConnectWindow: NSObject, NSWindowDelegate {
     private let port = NSTextField()
     private let username = NSTextField()
     private let password = NSSecureTextField()
+    /// VP9 first, because it is the default; the order is the tags'.
+    private let encoding = NSPopUpButton(frame: .zero, pullsDown: false)
+    private static let encodings: [(Encoding, String)] = [
+        (.vp9, "VP9 4:4:4"),
+        (.zrle, "ZRLE (exact, larger)"),
+    ]
     private let remember = NSButton(checkboxWithTitle: "Remember the password", target: nil, action: nil)
     private let audio = NSButton(checkboxWithTitle: "Play the desktop's sound", target: nil, action: nil)
     private let message = NSTextField(labelWithString: "")
@@ -42,6 +48,11 @@ final class ConnectWindow: NSObject, NSWindowDelegate {
             field.action = #selector(self.connect)
         }
 
+        for (index, (_, title)) in Self.encodings.enumerated() {
+            encoding.addItem(withTitle: title)
+            encoding.lastItem?.tag = index
+        }
+
         message.textColor = .systemRed
         message.lineBreakMode = .byWordWrapping
         message.maximumNumberOfLines = 2
@@ -52,6 +63,7 @@ final class ConnectWindow: NSObject, NSWindowDelegate {
             [label("Port:"), port],
             [label("User name:"), username],
             [label("Password:"), password],
+            [label("Encoding:"), encoding],
             [NSGridCell.emptyContentView, remember],
             [NSGridCell.emptyContentView, audio],
         ])
@@ -102,6 +114,7 @@ final class ConnectWindow: NSObject, NSWindowDelegate {
         password.stringValue = destination.password
         remember.state = destination.remember ? .on : .off
         audio.state = destination.audio ? .on : .off
+        encoding.selectItem(withTag: Self.encodings.firstIndex { $0.0 == destination.encoding } ?? 0)
         message.stringValue = error ?? ""
         message.isHidden = error == nil
 
@@ -133,7 +146,8 @@ final class ConnectWindow: NSObject, NSWindowDelegate {
             username: username.stringValue,
             password: password.stringValue,
             remember: remember.state == .on,
-            audio: audio.state == .on
+            audio: audio.state == .on,
+            encoding: Self.encodings[max(encoding.selectedTag(), 0)].0
         )
         destination.save()
         hide()

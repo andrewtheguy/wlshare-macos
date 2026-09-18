@@ -91,6 +91,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             username: destination.username,
             password: destination.password,
             audio: destination.audio,
+            encoding: destination.encoding,
             surface: Client.Surface(
                 width: UInt16(clamping: Int(backing.width)),
                 height: UInt16(clamping: Int(backing.height)),
@@ -149,7 +150,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .ready:
             banner.stringValue = ""
             let name = status.name.isEmpty ? window.title : status.name
-            window.title = "\(name) — \(status.desktop.width)×\(status.desktop.height) @ \(scale(status.scale))"
+            // The encoding is named only once a VP9 frame has arrived: asked for
+            // and not there is a server that fell back to ZRLE.
+            let encoding = status.vp9 ? " · VP9" : ""
+            window.title = "\(name) — \(status.desktop.width)×\(status.desktop.height) @ \(scale(status.scale))\(encoding)"
             // Not before the server has said it has sound: a session without it
             // keeps the Mac's audio device out of it.
             if status.audio, audio == nil {

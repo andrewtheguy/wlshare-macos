@@ -5,7 +5,10 @@ VNC server: an AppKit window drawing a Metal texture, over a Rust core that
 speaks the whole RFB session.
 
 **Scope:** the screen, the keyboard, the pointer, retina, the clipboard and the
-desktop's sound. The desktop is asked to be exactly the window's backing store,
+desktop's sound. The screen arrives as wlshare's VP9 stream — the whole desktop,
+4:4:4, at the quality the server's `vp9_quality` fixes — or, when the connect
+form's **Encoding** says so, as exact ZRLE; the window's title ends in `· VP9`
+while VP9 is what is arriving. The desktop is asked to be exactly the window's backing store,
 drawn at the window's density, so what is on screen is one device pixel per
 desktop pixel and never resampled. The clipboard is text, both ways, as UTF-8.
 The sound is wlshare's lossless FLAC stream, played on the Mac's default output,
@@ -88,10 +91,11 @@ That builds the core, generates the project, builds the app and opens it. The
 app takes the same words by hand:
 
 ```sh
-WlshareViewer.app/Contents/MacOS/WlshareViewer -server host:port -username me -audio YES
+WlshareViewer.app/Contents/MacOS/WlshareViewer -server host:port -username me -audio YES -encoding zrle
 ```
 
 `-audio YES` is the form's sound checkbox; without it the session is silent.
+`-encoding` is the form's encoding, `vp9` (the default) or `zrle`.
 
 There is no password argument, deliberately: an argument list is in the shell's
 history and in everyone's `ps`. A password that was remembered for that

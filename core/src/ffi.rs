@@ -19,12 +19,16 @@
 
 use std::ffi::{CStr, c_char, c_void};
 
-use crate::{Client, Config, Surface, session::State};
+use crate::{Client, Config, Encoding, Surface, session::State};
 
 /// [`State`] as the app sees it.
 pub const WLSHARE_STATE_CONNECTING: i32 = 0;
 pub const WLSHARE_STATE_READY: i32 = 1;
 pub const WLSHARE_STATE_CLOSED: i32 = 2;
+
+/// [`Encoding`] as the app says it.
+pub const WLSHARE_ENCODING_VP9: u8 = 0;
+pub const WLSHARE_ENCODING_ZRLE: u8 = 1;
 
 /// Where a session has got to, and what the desktop looks like.
 #[repr(C)]
@@ -38,6 +42,9 @@ pub struct WlshareStatus {
     pub scale: f64,
     /// Whether the desktop's sound is on: asked for, and the server has it.
     pub audio: bool,
+    /// Whether the desktop is arriving as VP9: asked for, and the server sent
+    /// it rather than falling back to ZRLE.
+    pub vp9: bool,
 }
 
 /// The framebuffer, as it is for the length of one callback.
@@ -130,7 +137,8 @@ unsafe fn copy_out(from: &str, out: *mut c_char, cap: usize) -> usize {
 /// # Safety
 /// The four strings are NUL-terminated UTF-8, or null for empty. An empty
 /// password asks for the `None` security type and any other asks for RSA-AES.
-/// `audio` asks for the desktop's sound.
+/// `audio` asks for the desktop's sound. `encoding` is one of the
+/// `WLSHARE_ENCODING_*` values, and anything else is VP9, the default.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn wlshare_client_connect(
     host: *const c_char,
@@ -138,11 +146,16 @@ pub unsafe extern "C" fn wlshare_client_connect(
     username: *const c_char,
     password: *const c_char,
     audio: bool,
+    encoding: u8,
     surface_width: u16,
     surface_height: u16,
     scale: f64,
 ) -> *mut Client {
-    let config = unsafe { Config { host: text(host), port, username: text(username), password: text(password), audio } };
+    let encoding = match encoding {
+        WLSHARE_ENCODING_ZRLE => Encoding::Zrle,
+        _ => Encoding::Vp9,
+    };
+    let config = unsafe { Config { host: text(host), port, username: text(username), password: text(password), audio, encoding } };
     let surface = Surface { width: surface_width, height: surface_height, scale };
     Box::into_raw(Box::new(Client::connect(config, surface)))
 }
@@ -177,6 +190,7 @@ pub unsafe extern "C" fn wlshare_client_status(client: *const Client, out: *mut 
             height: u32::from(height),
             scale: status.scale,
             audio: status.audio,
+            vp9: status.vp9,
         };
     }
 }
