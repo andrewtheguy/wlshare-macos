@@ -42,9 +42,9 @@ the command line skips it, which is what `scripts/run-macos.sh` and anything
 automated use.
 
 Only one thing is remembered on purpose. The host, the port, the user name and
-the sound checkbox are preferences; the password goes to the keychain, and only when the checkbox
-says so — a `defaults` plist is a file, and a password in one is a password in
-plain text. The preference keys are deliberately not `server` or `username`:
+the sound checkbox are preferences; the password goes to the keychain, and
+only when **Remember the password** is ticked — a `defaults` plist is a file,
+and a password in one is a password in plain text. The preference keys are deliberately not `server` or `username`:
 those are the argument names, and `UserDefaults`' argument domain outranks
 anything written to the standard one, so a launch with arguments would otherwise
 poison what the form reads back.
@@ -223,9 +223,10 @@ sends a byte of it.
 Ticked, the session lists `WLSF` and waits for the empty rectangle that
 announces it; a server without the extension never sends one and the session
 runs silent. The announcement is answered after the update it came in with a
-set-format — signed 16-bit stereo at 48 kHz, a Mac output's own rate — and an
-enable, once. Each begin makes a fresh `FlacDecoder`, each end drops it, and
-every frame between is decoded on the session's thread as it arrives, into the
+set-format — signed 16-bit stereo at 48 kHz, the stream's format whatever the
+output device runs at, which the mixer converts to — and an enable, once. Each
+begin makes a fresh `FlacDecoder`, each end drops it, and every frame between
+is decoded on the session's thread as it arrives, into the
 core's `Playback` buffer. A frame that does not decode costs its 20 ms and no
 more; each decodes on its own.
 

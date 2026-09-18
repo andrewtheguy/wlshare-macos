@@ -323,10 +323,16 @@ pub unsafe extern "C" fn wlshare_client_with_clipboard(client: *const Client, vi
 ///
 /// # Safety
 /// `client` is live or null, and `left` and `right` each have room for
-/// `frames` floats.
+/// `frames` floats. The two must not overlap; buffers that do are left as
+/// they are, since two mutable slices over the same floats cannot be made.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn wlshare_client_read_audio(client: *const Client, left: *mut f32, right: *mut f32, frames: usize) {
     if left.is_null() || right.is_null() || frames == 0 {
+        return;
+    }
+    let Some(bytes) = frames.checked_mul(size_of::<f32>()) else { return };
+    let (l, r) = (left as usize, right as usize);
+    if l < r.saturating_add(bytes) && r < l.saturating_add(bytes) {
         return;
     }
     let (left, right) = unsafe { (std::slice::from_raw_parts_mut(left, frames), std::slice::from_raw_parts_mut(right, frames)) };
@@ -394,4 +400,30 @@ pub unsafe extern "C" fn wlshare_client_wheel(client: *const Client, dx: f64, dy
 #[unsafe(no_mangle)]
 pub extern "C" fn wlshare_keysym(key_code: u16, character: u32) -> u32 {
     crate::keysym::keysym(key_code, char::from_u32(character).filter(|c| *c != '\0')).unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Separate buffers get the silence a null client has; one buffer passed
+    /// as both, or two that share floats, is left as it was rather than made
+    /// into two mutable slices over the same memory.
+    #[test]
+    fn overlapping_audio_buffers_are_left_untouched() {
+        let (mut left, mut right) = ([9.0f32; 4], [9.0f32; 4]);
+        unsafe { wlshare_client_read_audio(std::ptr::null(), left.as_mut_ptr(), right.as_mut_ptr(), 4) };
+        assert_eq!((left, right), ([0.0; 4], [0.0; 4]));
+
+        let mut both = [9.0f32; 6];
+        let p = both.as_mut_ptr();
+        unsafe { wlshare_client_read_audio(std::ptr::null(), p, p, 4) };
+        unsafe { wlshare_client_read_audio(std::ptr::null(), p, p.add(2), 4) };
+        unsafe { wlshare_client_read_audio(std::ptr::null(), p.add(2), p, 4) };
+        assert_eq!(both, [9.0; 6]);
+
+        // Adjacent is not overlapping.
+        unsafe { wlshare_client_read_audio(std::ptr::null(), p, p.add(3), 3) };
+        assert_eq!(both, [0.0; 6]);
+    }
 }

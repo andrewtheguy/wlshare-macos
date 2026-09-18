@@ -690,7 +690,7 @@ impl Live {
         match self.audio {
             Audio::Asked => {
                 log::info!("the server has sound; asking for {:?}", audio::FORMAT);
-                writer.send(&client::audio_set_format(&audio::FORMAT)).await?;
+                writer.send(&client::audio_set_format(&audio::FORMAT)?).await?;
                 writer.send(&client::audio_enable()).await?;
                 self.audio = Audio::On(None);
                 self.shared.status.lock().unwrap().audio = true;

@@ -19,6 +19,9 @@ final class AudioOutput {
         let source = Self.source(client: client, format: format)
         engine.attach(source)
         engine.connect(source, to: engine.mainMixerNode, format: format)
+        // No engine, no `AudioOutput`: the window makes one again on its next
+        // status rather than holding one that never plays.
+        guard start() else { return nil }
         // A new default output — headphones in, a display's speakers chosen —
         // stops the engine, and it has to be started again on the new one.
         observer = NotificationCenter.default.addObserver(
@@ -26,9 +29,8 @@ final class AudioOutput {
             object: engine,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.start() }
+            MainActor.assumeIsolated { _ = self?.start() }
         }
-        start()
     }
 
     /// Made outside the main actor on purpose: a closure written in a
@@ -46,12 +48,16 @@ final class AudioOutput {
         }
     }
 
-    private func start() {
-        guard !engine.isRunning else { return }
+    /// Whether the engine is running afterwards.
+    @discardableResult
+    private func start() -> Bool {
+        guard !engine.isRunning else { return true }
         do {
             try engine.start()
+            return true
         } catch {
             NSLog("the desktop's sound cannot be played: %@", error.localizedDescription)
+            return false
         }
     }
 

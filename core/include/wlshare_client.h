@@ -122,7 +122,8 @@ void wlshare_client_with_clipboard(const WlshareClient *client, WlshareClipboard
 
 /* The next `frames` of the desktop's sound, 48 kHz stereo, into `left` and
  * `right` — silence where there is none yet. For the audio device's render
- * callback: the lock it takes is held for one copy. */
+ * callback: the lock it takes is held for one copy. `left` and `right` must
+ * not overlap; buffers that do are left untouched. */
 void wlshare_client_read_audio(const WlshareClient *client, float *left, float *right, size_t frames);
 
 /* The pointer: the RFB button mask, and a position in the window's device
