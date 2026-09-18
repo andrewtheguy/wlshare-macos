@@ -198,11 +198,19 @@ fn sound_asked_for_is_turned_on_and_decodes() {
 }
 
 /// What the desktop plays arrives as that sound. Something must be playing on
-/// the desktop while this runs — a tone into the default sink:
+/// the desktop while this runs — a tone into the default sink, which follows
+/// the default to wlshare's speaker when the session turns the sound on. In the
+/// e2e image from `../remotex`, which plays nothing of its own:
 ///
 /// ```text
-/// pw-play tone.wav   # any 440 Hz stereo tone
+/// podman exec -d wlshare-client-dev sh -c 'export XDG_RUNTIME_DIR=/tmp/xdg;
+///   gst-launch-1.0 -q audiotestsrc freq=440 volume=0.5
+///     ! audio/x-raw,rate=48000,channels=2,format=S16LE,layout=interleaved ! fdsink
+///   | pw-cat -p --raw --format s16 --rate 48000 --channels 2 -'
 /// ```
+///
+/// Through `pw-cat` rather than GStreamer's `pipewiresink`, whose stream never
+/// finishes negotiating there and holds the speaker and the capture suspended.
 ///
 /// A silent desktop sends frames of zeros, which is what the test above takes;
 /// this is the one that proves the samples are the desktop's and not silence
