@@ -88,9 +88,6 @@ fn a_session_gets_a_desktop_and_paints_it() {
 fn a_vp9_session_gets_a_desktop_and_follows_a_resize() {
     let client = connect_with(Surface { width: 1024, height: 768, scale: 1.0 }, false, Encoding::Vp9);
     let lit = until("a painted 1024x768 VP9 desktop", || {
-        if !client.status().vp9 {
-            return None;
-        }
         client.with_frame(|fb, _| {
             if (fb.width(), fb.height()) != (1024, 768) {
                 return None;
@@ -110,7 +107,6 @@ fn a_vp9_session_gets_a_desktop_and_follows_a_resize() {
     until("a VP9 frame at the new size", || (client.status().frames > frames).then_some(()));
     let status = client.status();
     assert_eq!(status.state, State::Ready, "{:?}", status.error);
-    assert!(status.vp9);
 }
 
 /// Wait for the desktop to be this many pixels across at this scale, which is

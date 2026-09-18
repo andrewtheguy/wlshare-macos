@@ -269,7 +269,7 @@ mod tests {
         let client = Client::connect(nowhere(), Surface { width: 800, height: 600, scale: 2.0 });
         client.shared.framebuffer.lock().unwrap().resize(64, 48);
 
-        let mut status = ffi::WlshareStatus { state: 0, width: 0, height: 0, scale: 0.0, audio: false, vp9: false };
+        let mut status = ffi::WlshareStatus { state: 0, width: 0, height: 0, scale: 0.0, audio: false };
         unsafe { ffi::wlshare_client_status(&raw const client, &raw mut status) };
         assert_eq!((status.width, status.height), (64, 48));
 

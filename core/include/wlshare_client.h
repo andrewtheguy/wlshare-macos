@@ -41,15 +41,13 @@ typedef struct WlshareClient WlshareClient;
 #define WLSHARE_BUTTON_RIGHT 4
 
 /* Where a session has got to, and what the desktop looks like. `audio` is the
- * desktop's sound turned on: asked for, and the server has it. `vp9` is the
- * desktop arriving as VP9: asked for, and the server sent it rather than ZRLE. */
+ * desktop's sound turned on: asked for, and the server has it. */
 typedef struct {
     int32_t state;
     uint32_t width;
     uint32_t height;
     double scale;
     bool audio;
-    bool vp9;
 } WlshareStatus;
 
 /* The framebuffer, as it is for the length of one callback. `pixels` is

@@ -42,9 +42,6 @@ pub struct WlshareStatus {
     pub scale: f64,
     /// Whether the desktop's sound is on: asked for, and the server has it.
     pub audio: bool,
-    /// Whether the desktop is arriving as VP9: asked for, and the server sent
-    /// it rather than falling back to ZRLE.
-    pub vp9: bool,
 }
 
 /// The framebuffer, as it is for the length of one callback.
@@ -190,7 +187,6 @@ pub unsafe extern "C" fn wlshare_client_status(client: *const Client, out: *mut 
             height: u32::from(height),
             scale: status.scale,
             audio: status.audio,
-            vp9: status.vp9,
         };
     }
 }

@@ -4,7 +4,8 @@ import Security
 /// How the desktop's pixels are to arrive.
 enum Encoding: String {
     /// wlshare's VP9 stream: the whole desktop, 4:4:4, at the quality the
-    /// server fixes. The default: small and smooth when the desktop moves.
+    /// server sets. The default: small and smooth when the desktop moves. A
+    /// server without it is an error, not a fallback to ZRLE.
     case vp9
     /// ZRLE: every pixel exactly as the desktop drew it.
     case zrle
