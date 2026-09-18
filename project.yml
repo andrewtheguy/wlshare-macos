@@ -5,7 +5,7 @@ name: WlshareViewer
 options:
   bundleIdPrefix: dev.andrewtheguy
   deploymentTarget:
-    macOS: "14.0"
+    macOS: "15.0"
   createIntermediateGroups: true
 
 settings:
@@ -57,7 +57,7 @@ targets:
         # from what the bundle says.
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
-        LSMinimumSystemVersion: "14.0"
+        LSMinimumSystemVersion: "15.0"
         NSHighResolutionCapable: true
         # No Dock icon is wrong for a window you click into; the delegate sets
         # the policy at launch, and this keeps it out of the way until then.
