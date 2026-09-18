@@ -839,7 +839,7 @@ impl Live {
         });
         match body {
             RectBody::Raw(_) | RectBody::Zrle(_) if self.encoding == Encoding::Vp9 => {
-                bail!("the server sent the desktop without VP9, which this session asked for alone; it is older than the VP9 encoding")
+                bail!("the server does not have wlshare's VP9 encoding — it is not wlshare, or a wlshare older than 0.0.30; choose ZRLE to connect to it")
             }
             RectBody::Raw(pixels) => {
                 let mut fb = self.shared.framebuffer.lock().unwrap();
@@ -1241,7 +1241,7 @@ mod tests {
         live.shared.framebuffer.lock().unwrap().take_damage();
         let raw = client::Rect { x: 0, y: 0, width: 4, height: 2, body: RectBody::Raw(vec![0x7F; 4 * 2 * 4]) };
         let error = live.apply(raw.clone()).err().expect("Raw in a VP9 session");
-        assert!(error.to_string().contains("without VP9"), "{error}");
+        assert!(error.to_string().contains("choose ZRLE"), "{error}");
         assert!(live.apply(client::Rect { body: RectBody::Zrle(vec![0; 8]), ..raw.clone() }).is_err());
         assert_eq!(live.shared.framebuffer.lock().unwrap().take_damage(), None, "nothing was drawn");
 

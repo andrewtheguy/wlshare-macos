@@ -113,9 +113,9 @@ It is the default, because it is what makes a desktop that moves cheap to
 watch, and it is not exact: a desktop that settles is shown at the server's
 quality, not pixel for pixel. **ZRLE** on the form is the exact picture. VP9 is
 never a request ZRLE answers: it is listed with no pixel encoding behind it, and
-a Raw or ZRLE rectangle in a VP9 session — what a wlshare older than the
-encoding sends to a list it does not understand — ends the session with an
-error saying so, rather than showing a picture that is not the one chosen. The
+a Raw or ZRLE rectangle in a VP9 session — what any server without the
+encoding, a generic VNC server or a wlshare older than it, sends to a list it
+does not understand — ends the session with an error that says to choose ZRLE, rather than showing a picture that is not the one chosen. The
 title's `· VP9` therefore follows the form.
 
 A frame is decoded with the framebuffer's lock let go, into a buffer of the
