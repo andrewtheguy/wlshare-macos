@@ -25,11 +25,11 @@ and arrives here as a bumped tag.
 
 ## Scope
 
-Screen, keyboard, pointer, retina. The client lists ZRLE, Raw, Cursor, Cursor
-With Alpha, DesktopSize, ExtendedDesktopSize, Fence, ContinuousUpdates and the
-density extension, and nothing else — so the server never offers audio, camera,
-microphone or output selection, and `client::parse` treats a rectangle nobody
-asked for as fatal. The clipboard is recognised and dropped.
+Screen, keyboard, pointer, retina, clipboard. The client lists ZRLE, Raw,
+Cursor, Cursor With Alpha, DesktopSize, ExtendedDesktopSize, Fence,
+ContinuousUpdates, the density extension and Extended Clipboard, and nothing
+else — so the server never offers audio, camera, microphone or output
+selection, and `client::parse` treats a rectangle nobody asked for as fatal.
 
 ## Where a session begins
 
@@ -179,6 +179,35 @@ then there is nothing to say the pointer is anywhere else. After that, a shape
 that is gone is the server saying there is no pointer to draw, and the cursor
 rect holds an empty image: the framebuffer carries no pointer either, so an
 arrow of our own would be one the desktop does not have.
+
+## The clipboard
+
+Text, both ways, through Extended Clipboard — UTF-8, which is the only
+clipboard wlshare speaks; a latin-1 cut text is dropped. Nothing is said about
+either clipboard until the server's caps arrive, which it sends on every
+`SetEncodings`, and every caps is answered with the client's own: text, every
+action, and no unsolicited text.
+
+**The desktop's.** A notify is answered with a request at once rather than when
+something pastes, because an `NSPasteboard` has no way to fetch the text later.
+The text it brings goes into `Shared` with a generation, the window is woken,
+and `ClipboardSync.take` puts a generation it has not seen on the pasteboard. A
+notify of nothing — the desktop's clipboard cleared, or holding no text — leaves
+the Mac's alone.
+
+**The Mac's.** macOS says nothing when something is copied, so the window looks
+when the desktop window becomes the one in use — the app comes to the front, or
+the window becomes key — which is also the only moment a paste into the desktop
+can next happen. If the pasteboard's change count has moved, its text goes to
+the core, which notifies the desktop and sends the text only when the desktop
+asks. The desktop therefore never learns anything copied while it was not in
+front, and never anything the window did not hand over. A clipboard the window
+hands over before the session is ready is kept, and notified once the caps
+arrive.
+
+Neither direction sends back what the other just did: `ClipboardSync` records
+the change count both after offering and after writing the desktop's text, and
+the server keeps a clipboard a client set out of its own notifications.
 
 ## The C ABI
 

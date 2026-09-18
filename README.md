@@ -4,11 +4,12 @@ A native macOS client for the [`wlshare`](https://github.com/andrewtheguy/wlshar
 VNC server: an AppKit window drawing a Metal texture, over a Rust core that
 speaks the whole RFB session.
 
-**Scope:** the screen, the keyboard, the pointer, and retina. The desktop is
-asked to be exactly the window's backing store, drawn at the window's density,
-so what is on screen is one device pixel per desktop pixel and never resampled.
-Audio, camera, microphone, clipboard and picking an output are wlshare
-extensions this client does not speak.
+**Scope:** the screen, the keyboard, the pointer, retina and the clipboard. The
+desktop is asked to be exactly the window's backing store, drawn at the window's
+density, so what is on screen is one device pixel per desktop pixel and never
+resampled. The clipboard is text, both ways, as UTF-8. Audio, camera,
+microphone and picking an output are wlshare extensions this client does not
+speak.
 
 macOS only, Apple Silicon only. There is no iOS target.
 

@@ -156,6 +156,35 @@ final class Client: @unchecked Sendable {
         wlshare_client_damage_all(handle)
     }
 
+    // MARK: - The clipboard
+
+    /// The Mac's clipboard, for the desktop. The core sends it only when the
+    /// desktop asks for it.
+    func setClipboard(_ text: String) {
+        let bytes = Array(text.utf8)
+        bytes.withUnsafeBufferPointer { wlshare_client_set_clipboard(handle, $0.baseAddress, $0.count) }
+    }
+
+    /// The desktop's clipboard and which arrival it is, if it is not the one
+    /// numbered `seen` — nil when there is nothing new.
+    func desktopClipboard(after seen: UInt64) -> (generation: UInt64, text: String)? {
+        var taken: (generation: UInt64, text: String)?
+        let body: (UInt64, UnsafePointer<UInt8>?, Int) -> Void = { generation, text, length in
+            guard generation != seen, let text else { return }
+            taken = (generation, String(decoding: UnsafeBufferPointer(start: text, count: length), as: UTF8.self))
+        }
+        withoutActuallyEscaping(body) { body in
+            var box = body
+            withUnsafeMutablePointer(to: &box) { ctx in
+                wlshare_client_with_clipboard(handle, { ctx, generation, text, length in
+                    guard let ctx else { return }
+                    ctx.assumingMemoryBound(to: ((UInt64, UnsafePointer<UInt8>?, Int) -> Void).self).pointee(generation, text, length)
+                }, UnsafeMutableRawPointer(ctx))
+            }
+        }
+        return taken
+    }
+
     // MARK: - Input
 
     func pointer(buttons: UInt8, x: UInt16, y: UInt16) {

@@ -23,8 +23,13 @@
 //!   backing store. The picture is then one device pixel per framebuffer pixel
 //!   and never resampled.
 //!
-//! Audio, camera, microphone, clipboard and output selection are not spoken.
-//! Their pseudo-encodings are not listed, so the server never offers them.
+//! - **Extended Clipboard**, text as UTF-8, both ways, and the only clipboard
+//!   there is: a latin-1 cut text is dropped. A change on the desktop is
+//!   notified, asked for at once and handed to the window; the window's text
+//!   is notified when the window gives it, and sent when the desktop asks.
+//!
+//! Audio, camera, microphone and output selection are not spoken. Their
+//! pseudo-encodings are not listed, so the server never offers them.
 
 use std::future::{Future, pending};
 use std::sync::{Arc, Mutex};
@@ -37,6 +42,7 @@ use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::time::Instant;
 use wlshare_rfb::client::{self, RectBody, ServerMsg};
+use wlshare_rfb::clipboard::{self, Caps, Message as ClipboardMessage};
 use wlshare_rfb::cursor::CursorImage;
 use wlshare_rfb::density::from_fixed;
 use wlshare_rfb::msg::{FENCE_REQUEST, PROTOCOL_VERSION, SECURITY_NONE};
@@ -63,6 +69,7 @@ const ENCODINGS: &[i32] = &[
     ENCODING_FENCE,
     ENCODING_CONTINUOUS_UPDATES,
     ENCODING_DENSITY,
+    clipboard::ENCODING,
 ];
 
 /// How long to wait for the far end to answer at all.
@@ -101,12 +108,15 @@ impl Surface {
 }
 
 /// What the window asks the session to do.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum Command {
     /// The button mask and the position, in the window's device pixels.
     Pointer { buttons: u8, x: u16, y: u16 },
     Key { down: bool, keysym: u32 },
     Surface(Surface),
+    /// The Mac's clipboard, which the desktop may now have. Kept, notified, and
+    /// sent only when the desktop asks for it.
+    Clipboard(String),
     Shutdown,
 }
 
@@ -149,6 +159,10 @@ pub struct Shared {
     /// hidden or has not arrived. `cursor_generation` is what tells the window
     /// it is looking at a shape it has not seen.
     pub cursor: Mutex<(u64, Option<CursorImage>)>,
+    /// The desktop's clipboard as it last arrived, and which arrival that was:
+    /// a generation the window has not seen is text it has not put on the Mac's
+    /// clipboard yet. `None` until the desktop has provided any.
+    pub clipboard: Mutex<(u64, Option<String>)>,
     /// Called from the session's thread whenever there is something new to
     /// draw. The window uses it to mark itself dirty; it must not block.
     wake: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
@@ -160,6 +174,7 @@ impl Default for Shared {
             framebuffer: Mutex::new(Framebuffer::new(0, 0)),
             status: Mutex::new(Status::default()),
             cursor: Mutex::new((0, None)),
+            clipboard: Mutex::new((0, None)),
             wake: Mutex::new(None),
         }
     }
@@ -253,6 +268,7 @@ async fn connect_and_run(config: Config, surface: Surface, shared: &Arc<Shared>,
     // connecting — or a server that accepts one and never sends its version —
     // would otherwise hold the window for as long as it pleased.
     let mut surface = surface;
+    let mut local_clipboard = None;
     let connecting = async {
         let socket = tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect((config.host.as_str(), config.port)))
             .await
@@ -262,7 +278,7 @@ async fn connect_and_run(config: Config, surface: Surface, shared: &Arc<Shared>,
         let (reader, writer) = socket.into_split();
         handshake(reader, writer, &config, key).await
     };
-    let Some((mut reader, mut writer, init)) = while_connecting(&mut commands, &mut surface, connecting).await.transpose()? else {
+    let Some((mut reader, mut writer, init)) = while_connecting(&mut commands, &mut surface, &mut local_clipboard, connecting).await.transpose()? else {
         return Ok(());
     };
 
@@ -288,6 +304,9 @@ async fn connect_and_run(config: Config, surface: Surface, shared: &Arc<Shared>,
         awaiting_scale: false,
         held_size: None,
         cursor_generation: 0,
+        server_clipboard: None,
+        local_clipboard,
+        clipboard_generation: 0,
     };
     session.ask_for(&mut writer, surface).await?;
     session.stream_whole_desktop(&mut writer).await?;
@@ -332,6 +351,10 @@ async fn connect_and_run(config: Config, surface: Surface, shared: &Arc<Shared>,
                         writer.send(&client::pointer_event(buttons, x, y)).await?;
                     }
                     Command::Key { down, keysym } => writer.send(&client::key_event(down, keysym)).await?,
+                    Command::Clipboard(text) => {
+                        session.local_clipboard = Some(text);
+                        session.announce_clipboard(&mut writer).await?;
+                    }
                 }
             }
             () = async { match settle { Some(at) => tokio::time::sleep_until(at).await, None => pending().await } } => {
@@ -349,7 +372,13 @@ async fn connect_and_run(config: Config, surface: Surface, shared: &Arc<Shared>,
 ///
 /// Input to a desktop that does not exist yet is dropped. The window's size is
 /// not: a window resized while connecting is the size the session starts at.
-async fn while_connecting<T>(commands: &mut UnboundedReceiver<Command>, surface: &mut Surface, work: impl Future<Output = T>) -> Option<T> {
+/// Nor is its clipboard, which the desktop is told of once it can be.
+async fn while_connecting<T>(
+    commands: &mut UnboundedReceiver<Command>,
+    surface: &mut Surface,
+    clipboard: &mut Option<String>,
+    work: impl Future<Output = T>,
+) -> Option<T> {
     tokio::pin!(work);
     loop {
         tokio::select! {
@@ -357,6 +386,7 @@ async fn while_connecting<T>(commands: &mut UnboundedReceiver<Command>, surface:
             command = commands.recv() => match command {
                 None | Some(Command::Shutdown) => return None,
                 Some(Command::Surface(wanted)) if wanted.is_usable() => *surface = wanted,
+                Some(Command::Clipboard(text)) => *clipboard = Some(text),
                 Some(_) => {}
             },
         }
@@ -435,6 +465,14 @@ struct Live {
     /// ([`Live::ask_for`]).
     held_size: Option<(u16, u16)>,
     cursor_generation: u64,
+    /// What the server takes of the clipboard, from its caps. `None` until they
+    /// arrive, and for a server that never sends them: no clipboard is shared.
+    server_clipboard: Option<Caps>,
+    /// The Mac's clipboard as the window last gave it, which is what the
+    /// desktop is notified of and sent when it asks — never more than the
+    /// window chose to hand over.
+    local_clipboard: Option<String>,
+    clipboard_generation: u64,
 }
 
 impl Live {
@@ -554,12 +592,94 @@ impl Live {
                     }
                 }
             }
-            // Asked for by nobody here: the client lists no clipboard
-            // pseudo-encoding, and a server may still send the standard one.
-            ServerMsg::CutText(_) => {}
+            // Latin-1, which this client does not speak.
+            ServerMsg::CutText(_) => log::debug!("a latin-1 cut text; ignored"),
+            ServerMsg::ExtendedCutText(body) => self.handle_clipboard(&body, writer).await?,
             // The server sends this once to say it understands them, and again
             // if they are ever turned off. Either way there is nothing to do.
             ServerMsg::EndOfContinuousUpdates => log::debug!("the server acknowledged continuous updates"),
+        }
+        Ok(())
+    }
+
+    /// One of the server's Extended Clipboard messages. One that cannot be read
+    /// is dropped rather than the session: it was framed, and is consumed.
+    async fn handle_clipboard<W: AsyncWrite + Unpin>(&mut self, body: &[u8], writer: &mut Writer<W>) -> anyhow::Result<()> {
+        let message = match clipboard::parse(body) {
+            Ok(message) => message,
+            Err(error) => {
+                log::warn!("{error}; ignored");
+                return Ok(());
+            }
+        };
+        if let ClipboardMessage::Caps(theirs) = message {
+            log::debug!("the server's clipboard caps are {theirs:?}");
+            // Answered every time, as the server sends them on every
+            // SetEncodings; the first time, it is also when the desktop can be
+            // told of a clipboard the window gave before there was a desktop.
+            writer.send(&client::client_extended_cut_text(&clipboard::caps(&Caps::WLSHARE))).await?;
+            let first = self.server_clipboard.is_none();
+            self.server_clipboard = Some(theirs);
+            if first {
+                self.announce_clipboard(writer).await?;
+            }
+            return Ok(());
+        }
+        let Some(caps) = self.server_clipboard else {
+            log::debug!("a clipboard message before the server's caps; ignored");
+            return Ok(());
+        };
+        match message {
+            ClipboardMessage::Caps(_) => unreachable!("handled above"),
+            // Asked for at once: the Mac's pasteboard has no way to fetch the
+            // text when something pastes it. A notify of nothing is a desktop
+            // clipboard emptied or holding what is not text, and the Mac's is
+            // left as it is.
+            ClipboardMessage::Notify { formats } => {
+                if formats & clipboard::FORMAT_TEXT != 0 && caps.takes(clipboard::ACTION_REQUEST) {
+                    writer.send(&client::client_extended_cut_text(&clipboard::request())).await?;
+                }
+            }
+            ClipboardMessage::Provide { text: Some(text) } => {
+                log::debug!("{} bytes of the desktop's clipboard", text.len());
+                self.clipboard_generation += 1;
+                *self.shared.clipboard.lock().unwrap() = (self.clipboard_generation, Some(text));
+                self.shared.wake();
+            }
+            ClipboardMessage::Provide { text: None } => log::debug!("a clipboard with no text; ignored"),
+            ClipboardMessage::Request { formats } => {
+                if let Some(text) = &self.local_clipboard
+                    && formats & clipboard::FORMAT_TEXT != 0
+                    && caps.takes(clipboard::ACTION_PROVIDE)
+                {
+                    match clipboard::provide(text) {
+                        Ok(body) => writer.send(&client::client_extended_cut_text(&body)).await?,
+                        Err(error) => log::warn!("the clipboard is not sent: {error}"),
+                    }
+                }
+            }
+            ClipboardMessage::Peek => {
+                if caps.takes(clipboard::ACTION_NOTIFY) {
+                    writer.send(&client::client_extended_cut_text(&clipboard::notify(self.local_clipboard.is_some()))).await?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Tell the desktop the Mac's clipboard changed: a notify, or — to a server
+    /// that takes no notify — the text itself, if it takes that unasked. Nothing
+    /// before the server's caps, which is when this is called again.
+    async fn announce_clipboard<W: AsyncWrite + Unpin>(&mut self, writer: &mut Writer<W>) -> anyhow::Result<()> {
+        let (Some(caps), Some(text)) = (self.server_clipboard, &self.local_clipboard) else { return Ok(()) };
+        if caps.takes(clipboard::ACTION_NOTIFY) {
+            writer.send(&client::client_extended_cut_text(&clipboard::notify(true))).await?;
+        } else if caps.takes(clipboard::ACTION_PROVIDE)
+            && caps.takes_text()
+            && caps.text_size.is_some_and(|size| text.len() <= size as usize)
+            && let Ok(body) = clipboard::provide(text)
+        {
+            writer.send(&client::client_extended_cut_text(&body)).await?;
         }
         Ok(())
     }
@@ -682,6 +802,9 @@ mod tests {
             awaiting_scale: false,
             held_size: None,
             cursor_generation: 0,
+            server_clipboard: None,
+            local_clipboard: None,
+            clipboard_generation: 0,
         }
     }
 
@@ -779,6 +902,106 @@ mod tests {
             ],
             "the region enabled was the old framebuffer's, and the new one is not that size"
         );
+    }
+
+    /// The server's side of the clipboard, as the daemon frames it.
+    fn from_server(body: &[u8]) -> ServerMsg {
+        let wire = wlshare_rfb::msg::server_extended_cut_text(body);
+        client::parse(&wire).expect("a message").expect("a whole message").0
+    }
+
+    /// What the session sent, as the clipboard messages they carry.
+    fn clipboard_sent(writer: &mut Writer<Vec<u8>>) -> Vec<ClipboardMessage> {
+        sent(writer)
+            .into_iter()
+            .map(|message| match message {
+                ClientMsg::ExtendedCutText(body) => clipboard::parse(&body).expect("a clipboard message"),
+                other => panic!("{other:?} where a clipboard message was expected"),
+            })
+            .collect()
+    }
+
+    fn server_caps() -> ServerMsg {
+        from_server(&clipboard::caps(&Caps::WLSHARE))
+    }
+
+    #[tokio::test]
+    async fn the_extension_is_listed_and_latin1_is_not_answered() {
+        assert!(ENCODINGS.contains(&clipboard::ENCODING));
+        let mut live = live();
+        let mut writer = writer();
+        let latin1 = [3, 0, 0, 0, 0, 0, 0, 2, 0xE9, b'a'];
+        let (message, _) = client::parse(&latin1).unwrap().unwrap();
+        live.handle(message, &mut writer).await.unwrap();
+        assert_eq!(sent(&mut writer), vec![]);
+        assert_eq!(live.shared.clipboard.lock().unwrap().0, 0);
+    }
+
+    /// Nothing about the Mac's clipboard goes out before the server has said
+    /// it takes one, and the text itself only when the desktop asks.
+    #[tokio::test]
+    async fn the_macs_clipboard_is_notified_once_the_server_takes_it_and_sent_when_asked() {
+        let mut live = live();
+        let mut writer = writer();
+        live.local_clipboard = Some("画面\nnaïve ☕".to_owned());
+        live.announce_clipboard(&mut writer).await.unwrap();
+        assert_eq!(sent(&mut writer), vec![], "no caps yet, so nothing is said");
+
+        live.handle(server_caps(), &mut writer).await.unwrap();
+        assert_eq!(
+            clipboard_sent(&mut writer),
+            vec![ClipboardMessage::Caps(Caps::WLSHARE), ClipboardMessage::Notify { formats: clipboard::FORMAT_TEXT }],
+            "caps answered, then the clipboard the window gave while there was none"
+        );
+
+        live.handle(from_server(&clipboard::request()), &mut writer).await.unwrap();
+        assert_eq!(clipboard_sent(&mut writer), vec![ClipboardMessage::Provide { text: Some("画面\nnaïve ☕".to_owned()) }]);
+
+        live.handle(from_server(&clipboard::peek()), &mut writer).await.unwrap();
+        assert_eq!(clipboard_sent(&mut writer), vec![ClipboardMessage::Notify { formats: clipboard::FORMAT_TEXT }]);
+
+        // Caps again, as every SetEncodings brings: answered, and the clipboard
+        // is not notified a second time for it.
+        live.handle(server_caps(), &mut writer).await.unwrap();
+        assert_eq!(clipboard_sent(&mut writer), vec![ClipboardMessage::Caps(Caps::WLSHARE)]);
+    }
+
+    #[tokio::test]
+    async fn the_desktops_clipboard_is_asked_for_when_notified_and_handed_to_the_window() {
+        let mut live = live();
+        let mut writer = writer();
+        live.handle(from_server(&clipboard::notify(true)), &mut writer).await.unwrap();
+        assert_eq!(sent(&mut writer), vec![], "a notify before caps is not answered");
+
+        live.handle(server_caps(), &mut writer).await.unwrap();
+        sent(&mut writer);
+        live.handle(from_server(&clipboard::notify(true)), &mut writer).await.unwrap();
+        assert_eq!(clipboard_sent(&mut writer), vec![ClipboardMessage::Request { formats: clipboard::FORMAT_TEXT }]);
+
+        // A desktop clipboard emptied, or holding no text: nothing to ask for,
+        // and the Mac's is left alone.
+        live.handle(from_server(&clipboard::notify(false)), &mut writer).await.unwrap();
+        assert_eq!(sent(&mut writer), vec![]);
+
+        live.handle(from_server(&clipboard::provide("one\ntwo 🚀").unwrap()), &mut writer).await.unwrap();
+        assert_eq!(*live.shared.clipboard.lock().unwrap(), (1, Some("one\ntwo 🚀".to_owned())));
+
+        // A request with nothing given by the window is not answered with
+        // anything invented.
+        live.handle(from_server(&clipboard::request()), &mut writer).await.unwrap();
+        assert_eq!(sent(&mut writer), vec![]);
+    }
+
+    #[tokio::test]
+    async fn a_clipboard_message_that_cannot_be_read_is_dropped_and_not_the_session() {
+        let mut live = live();
+        let mut writer = writer();
+        live.handle(server_caps(), &mut writer).await.unwrap();
+        sent(&mut writer);
+        live.handle(from_server(&[0x10, 0, 0, 0x01, 1, 2, 3]), &mut writer).await.unwrap();
+        live.handle(from_server(&[0x08]), &mut writer).await.unwrap();
+        assert_eq!(sent(&mut writer), vec![]);
+        assert_eq!(live.shared.clipboard.lock().unwrap().0, 0);
     }
 
     #[test]

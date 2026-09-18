@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var window: NSWindow?
     private var view: DesktopView?
     private var client: Client?
+    private var clipboard: ClipboardSync?
     private let banner = NSTextField(labelWithString: "")
     private let form = ConnectWindow()
     /// The last destination tried, which is what the form comes back filled
@@ -29,6 +30,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         form.onConnect = { [weak self] destination in self?.open(destination) }
 
         makeMenu()
+        // The moments the desktop window becomes the one in use, which is when
+        // the Mac's clipboard is offered to the desktop.
+        let center = NotificationCenter.default
+        center.addObserver(self, selector: #selector(inUse), name: NSApplication.didBecomeActiveNotification, object: nil)
+        center.addObserver(self, selector: #selector(inUse), name: NSWindow.didBecomeKeyNotification, object: nil)
         NSApp.setActivationPolicy(.regular)
         // A launch from a shell says where to go; a launch from the Finder asks.
         if let destination = Destination.fromArguments() {
@@ -88,6 +94,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
         )
         self.client = client
+        clipboard = ClipboardSync(client: client)
 
         let view = DesktopView(client: client, device: device)
         view.autoresizingMask = [.width, .height]
@@ -111,6 +118,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// own: the caller has already brought the form up, and a window closed
     /// while another is on screen is not the last one.
     private func close() {
+        clipboard = nil
         client = nil
         banner.removeFromSuperview()
         // Ordered out rather than closed: `close()` runs the window out with an
@@ -141,7 +149,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return close()
         }
         banner.isHidden = banner.stringValue.isEmpty
+        clipboard?.take()
         view.needsDisplay = true
+    }
+
+    /// The app came to the front, or a window became key: if it is the
+    /// desktop's, and the app is the one in front, the desktop may now be
+    /// pasted into.
+    @objc private func inUse() {
+        guard NSApp.isActive, let window, window.isKeyWindow else { return }
+        clipboard?.offer()
     }
 
     private func scale(_ scale: Double) -> String {
