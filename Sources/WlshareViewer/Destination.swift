@@ -3,15 +3,17 @@ import Security
 
 /// A desktop to connect to, and what is remembered about it between launches.
 ///
-/// The host, the port and the user name are preferences; the password is not,
-/// and goes to the keychain or nowhere. Nothing is remembered unless the
-/// dialog's checkbox says so.
+/// The host, the port, the user name and whether to play the desktop's sound
+/// are preferences; the password is not, and goes to the keychain or nowhere,
+/// and only when the dialog's checkbox says so.
 struct Destination: Equatable {
     var host: String = ""
     var port: UInt16 = 5900
     var username: String = ""
     var password: String = ""
     var remember: Bool = false
+    /// Ask for the desktop's sound. A server without it gives none either way.
+    var audio: Bool = false
 
     var label: String { "\(host):\(port)" }
 
@@ -21,7 +23,7 @@ struct Destination: Equatable {
 
     /// The command line, for a launch that came from a shell:
     ///
-    ///     WlshareViewer -server 127.0.0.1:5999 -username me
+    ///     WlshareViewer -server 127.0.0.1:5999 -username me -audio YES
     ///
     /// `UserDefaults` reads `-key value` pairs off the argument list, so the
     /// same words work through `open --args`. Nil when no `-server` was given,
@@ -35,7 +37,12 @@ struct Destination: Equatable {
         let defaults = UserDefaults.standard
         guard let server = defaults.string(forKey: "server") else { return nil }
         let (host, port) = split(server)
-        var destination = Destination(host: host, port: port, username: defaults.string(forKey: "username") ?? "")
+        var destination = Destination(
+            host: host,
+            port: port,
+            username: defaults.string(forKey: "username") ?? "",
+            audio: defaults.bool(forKey: "audio")
+        )
         destination.password = Keychain.password(account: destination.account) ?? ""
         destination.remember = !destination.password.isEmpty
         return destination
@@ -48,7 +55,8 @@ struct Destination: Equatable {
             host: defaults.string(forKey: Key.host) ?? "",
             port: UInt16(exactly: defaults.integer(forKey: Key.port)) ?? 5900,
             username: defaults.string(forKey: Key.username) ?? "",
-            remember: defaults.bool(forKey: Key.remember)
+            remember: defaults.bool(forKey: Key.remember),
+            audio: defaults.bool(forKey: Key.audio)
         )
         if destination.port == 0 { destination.port = 5900 }
         if destination.remember {
@@ -65,6 +73,7 @@ struct Destination: Equatable {
         defaults.set(Int(port), forKey: Key.port)
         defaults.set(username, forKey: Key.username)
         defaults.set(remember, forKey: Key.remember)
+        defaults.set(audio, forKey: Key.audio)
         if remember, !password.isEmpty {
             Keychain.set(password, account: account)
         } else {
@@ -85,13 +94,14 @@ struct Destination: Equatable {
         return (String(server[..<colon]), port)
     }
 
-    /// Deliberately not `server` or `username`: those are the argument names,
-    /// and the argument domain outranks anything written here.
+    /// Deliberately not `server`, `username` or `audio`: those are the argument
+    /// names, and the argument domain outranks anything written here.
     private enum Key {
         static let host = "lastHost"
         static let port = "lastPort"
         static let username = "lastUsername"
         static let remember = "rememberPassword"
+        static let audio = "playAudio"
     }
 }
 

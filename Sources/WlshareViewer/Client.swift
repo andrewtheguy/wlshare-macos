@@ -36,8 +36,8 @@ final class Client: @unchecked Sendable {
         nonisolated(unsafe) var onChange: (() -> Void)?
     }
 
-    init(host: String, port: UInt16, username: String, password: String, surface: Surface) {
-        handle = wlshare_client_connect(host, port, username, password, surface.width, surface.height, surface.scale)
+    init(host: String, port: UInt16, username: String, password: String, audio: Bool, surface: Surface) {
+        handle = wlshare_client_connect(host, port, username, password, audio, surface.width, surface.height, surface.scale)
         context = Unmanaged.passRetained(wake).toOpaque()
         // The trampoline hops to the main queue, so the session's thread is
         // never held up by a redraw and the header's "must not block" is kept
@@ -88,10 +88,12 @@ final class Client: @unchecked Sendable {
         var scale: Double
         var name: String
         var error: String?
+        /// The desktop's sound is on: asked for, and the server has it.
+        var audio: Bool
     }
 
     var status: Status {
-        var raw = WlshareStatus(state: 0, width: 0, height: 0, scale: 1)
+        var raw = WlshareStatus(state: 0, width: 0, height: 0, scale: 1, audio: false)
         wlshare_client_status(handle, &raw)
         let state: State =
             switch raw.state {
@@ -105,7 +107,8 @@ final class Client: @unchecked Sendable {
             desktop: (Int(raw.width), Int(raw.height)),
             scale: raw.scale,
             name: string { wlshare_client_name(handle, $0, $1) },
-            error: error.isEmpty ? nil : error
+            error: error.isEmpty ? nil : error,
+            audio: raw.audio
         )
     }
 
@@ -183,6 +186,15 @@ final class Client: @unchecked Sendable {
             }
         }
         return taken
+    }
+
+    // MARK: - Sound
+
+    /// The next `frames` of the desktop's sound, 48 kHz stereo, into two
+    /// channel buffers — silence where there is none yet. Called from the audio
+    /// device's render thread; the core holds its lock for one copy.
+    func readAudio(left: UnsafeMutablePointer<Float>, right: UnsafeMutablePointer<Float>, frames: Int) {
+        wlshare_client_read_audio(handle, left, right, frames)
     }
 
     // MARK: - Input

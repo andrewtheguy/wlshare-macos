@@ -27,6 +27,7 @@ const TYPES: &[(&str, &str)] = &[
     ("*mut c_char", "char *"),
     ("*const u8", "const uint8_t *"),
     ("*mut u8", "uint8_t *"),
+    ("*mut f32", "float *"),
     ("*mut c_void", "void *"),
     ("*const Client", "const WlshareClient *"),
     ("*mut Client", "WlshareClient *"),

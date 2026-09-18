@@ -3,7 +3,8 @@
 //! exist between two processes.
 //!
 //! Ignored by default and pointed at `WLSHARE_TEST_SERVER`, or `127.0.0.1:5999`
-//! — the container CLAUDE.local.md sets up. Run it with:
+//! — the container CLAUDE.local.md sets up — as `WLSHARE_TEST_USERNAME` with
+//! `WLSHARE_TEST_PASSWORD`, or unauthenticated when there is none. Run it with:
 //!
 //! ```text
 //! cargo test --test live_session -- --ignored --nocapture
@@ -35,9 +36,15 @@ fn until<T>(what: &str, mut done: impl FnMut() -> Option<T>) -> T {
 }
 
 fn connect(surface: Surface) -> Client {
+    connect_with(surface, false)
+}
+
+fn connect_with(surface: Surface, audio: bool) -> Client {
     let _ = env_logger::builder().is_test(false).try_init();
     let (host, port) = server();
-    let config = Config { host, port, username: String::new(), password: String::new() };
+    let username = std::env::var("WLSHARE_TEST_USERNAME").unwrap_or_default();
+    let password = std::env::var("WLSHARE_TEST_PASSWORD").unwrap_or_default();
+    let config = Config { host, port, username, password, audio };
     let client = Client::connect(config, surface);
     until("the handshake", || match client.status() {
         status if status.state == State::Ready => Some(()),
@@ -140,4 +147,58 @@ fn the_pointer_has_a_shape_and_input_is_taken() {
     std::thread::sleep(Duration::from_millis(500));
     let status = client.status();
     assert_eq!(status.state, State::Ready, "the session survived the input: {:?}", status.error);
+}
+
+/// Asked for, the server's sound is turned on and its frames decode: its
+/// capture runs whether the desktop plays anything or not, so a silent desktop
+/// still sends a frame every 20 ms.
+#[test]
+#[ignore = "needs a wlshare server; see CLAUDE.local.md"]
+fn sound_asked_for_is_turned_on_and_decodes() {
+    let client = connect_with(Surface { width: 1024, height: 768, scale: 1.0 }, true);
+    until("the sound turned on", || client.status().audio.then_some(()));
+    let sound = until("a second of decoded sound", || {
+        let sound = client.status().sound;
+        (sound >= 50).then_some(sound)
+    });
+    println!("{sound} FLAC frames decoded");
+
+    let (mut left, mut right) = (vec![9.0; 480], vec![9.0; 480]);
+    client.read_audio(&mut left, &mut right);
+    assert!(left.iter().chain(&right).all(|s| (-1.0..1.0).contains(s)), "samples, not what was there before");
+}
+
+/// What the desktop plays arrives as that sound. Something must be playing on
+/// the desktop while this runs — a tone into the default sink:
+///
+/// ```text
+/// pw-play tone.wav   # any 440 Hz stereo tone
+/// ```
+///
+/// A silent desktop sends frames of zeros, which is what the test above takes;
+/// this is the one that proves the samples are the desktop's and not silence
+/// that decoded.
+#[test]
+#[ignore = "needs a wlshare server playing sound; see the doc comment"]
+fn the_sound_the_desktop_plays_arrives() {
+    let client = connect_with(Surface { width: 1024, height: 768, scale: 1.0 }, true);
+    until("the sound turned on", || client.status().audio.then_some(()));
+
+    // Taken the way the Mac's device takes it, in 10 ms reads, until a second
+    // of sound louder than a whisper has come through.
+    let mut heard = Vec::new();
+    until("a second of the desktop's sound", || {
+        let (mut left, mut right) = (vec![0.0f32; 480], vec![0.0f32; 480]);
+        client.read_audio(&mut left, &mut right);
+        if left.iter().any(|s| s.abs() > 0.01) {
+            heard.extend(left);
+        }
+        std::thread::sleep(Duration::from_millis(10));
+        (heard.len() >= 48_000).then_some(())
+    });
+    let peak = heard.iter().fold(0.0f32, |peak, s| peak.max(s.abs()));
+    let crossings = heard.windows(2).filter(|w| (w[0] < 0.0) != (w[1] < 0.0)).count();
+    let hz = crossings as f64 / 2.0 * 48_000.0 / heard.len() as f64;
+    println!("peak {peak:.3}, about {hz:.0} Hz on the left");
+    assert!(peak > 0.05, "a peak of {peak} is not the desktop playing anything");
 }

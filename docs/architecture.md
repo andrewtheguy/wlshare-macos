@@ -25,11 +25,13 @@ and arrives here as a bumped tag.
 
 ## Scope
 
-Screen, keyboard, pointer, retina, clipboard. The client lists ZRLE, Raw,
-Cursor, Cursor With Alpha, DesktopSize, ExtendedDesktopSize, Fence,
-ContinuousUpdates, the density extension and Extended Clipboard, and nothing
-else — so the server never offers audio, camera, microphone or output
-selection, and `client::parse` treats a rectangle nobody asked for as fatal.
+Screen, keyboard, pointer, retina, clipboard, and the desktop's sound when it
+is asked for. The client lists ZRLE, Raw, Cursor, Cursor With Alpha,
+DesktopSize, ExtendedDesktopSize, Fence, ContinuousUpdates, the density
+extension, Extended Clipboard and — only when the form's sound checkbox is
+ticked — the audio extension, and nothing else. The server never offers camera,
+microphone or output selection, and `client::parse` treats a rectangle nobody
+asked for as fatal.
 
 ## Where a session begins
 
@@ -39,10 +41,10 @@ password, and it is what an app opened from the Finder starts at. `-server` on
 the command line skips it, which is what `scripts/run-macos.sh` and anything
 automated use.
 
-Only one thing is remembered on purpose. The host, the port and the user name
-are preferences; the password goes to the keychain, and only when the checkbox
-says so — a `defaults` plist is a file, and a password in one is a password in
-plain text. The preference keys are deliberately not `server` or `username`:
+Only one thing is remembered on purpose. The host, the port, the user name and
+the sound checkbox are preferences; the password goes to the keychain, and
+only when **Remember the password** is ticked — a `defaults` plist is a file,
+and a password in one is a password in plain text. The preference keys are deliberately not `server` or `username`:
 those are the argument names, and `UserDefaults`' argument domain outranks
 anything written to the standard one, so a launch with arguments would otherwise
 poison what the form reads back.
@@ -208,6 +210,44 @@ arrive.
 Neither direction sends back what the other just did: `ClipboardSync` records
 the change count both after offering and after writing the desktop's text, and
 the server keeps a clipboard a client set out of its own notifications.
+
+## Sound
+
+wlshare's audio extension carries what the desktop plays as FLAC on the
+connection the pixels use; the wire is `wlshare-rfb`'s `audio` module and its
+design is in wlshare's own `docs/architecture.md`. It is asked for or not, per
+connection, by the form's **Play the desktop's sound** — `-audio YES` on the
+command line. Unticked, the pseudo-encoding is not listed and the server never
+sends a byte of it.
+
+Ticked, the session lists `WLSF` and waits for the empty rectangle that
+announces it; a server without the extension never sends one and the session
+runs silent. The announcement is answered after the update it came in with a
+set-format — signed 16-bit stereo at 48 kHz, the stream's format whatever the
+output device runs at, which the mixer converts to — and an enable, once. Each
+begin makes a fresh `FlacDecoder`, each end drops it, and every frame between
+is decoded on the session's thread as it arrives, into the
+core's `Playback` buffer. A frame that does not decode costs its 20 ms and no
+more; each decodes on its own.
+
+`AudioOutput` is the other end: an `AVAudioEngine` whose one source node pulls
+from that buffer on the audio device's clock, through
+`wlshare_client_read_audio`, and whose mixer converts 48 kHz to whatever the
+device runs at. It is made only once the status says the sound is on, so a
+session without it leaves the Mac's audio hardware alone, restarted when the
+default output changes, and stopped before the `Client` is let go — the render
+thread reads from it until the engine has stopped. Its render block is built in
+a `nonisolated` function: a closure written in a main-actor context is isolated
+to it, and Swift 6 checks that on entry, on a thread that is not the main one.
+
+The two clocks — the server's capture and the Mac's device — are not one clock,
+and the network is not smooth, so `Playback` has a floor and a ceiling. It
+starts playing only once 60 ms is waiting, and running dry puts it back to
+waiting for that much rather than playing each frame the instant it lands; past
+300 ms the oldest sound is dropped back down to 60, so a stall followed by a
+burst costs a skip rather than a delay that never goes away. Sound shares the
+TCP stream with the pixels, and wlshare sends it ahead of every framebuffer
+update, so a large ZRLE frame delays it by no more than its own transfer.
 
 ## The C ABI
 
