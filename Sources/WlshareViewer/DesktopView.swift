@@ -309,9 +309,14 @@ final class DesktopView: MTKView {
 
     /// Where an event happened, in the desktop's pixels — which are this
     /// window's backing pixels, the view being flipped so both count down.
+    ///
+    /// Scaled by hand rather than through `convertToBacking`: the backing store
+    /// counts up the screen whatever the view does, so a flipped view's point
+    /// comes back with its y negated, and every event landed on the top row.
     private func position(_ event: NSEvent) -> (UInt16, UInt16) {
-        let point = convertToBacking(convert(event.locationInWindow, from: nil))
-        return (UInt16(clamping: Int(point.x.rounded())), UInt16(clamping: Int(point.y.rounded())))
+        let point = convert(event.locationInWindow, from: nil)
+        let scale = surface.scale
+        return (UInt16(clamping: Int((point.x * scale).rounded())), UInt16(clamping: Int((point.y * scale).rounded())))
     }
 
     private func send(_ event: NSEvent) {
