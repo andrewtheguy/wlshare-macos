@@ -26,7 +26,8 @@ and arrives here as a bumped tag.
 ## Scope
 
 Screen, keyboard, pointer, retina, clipboard, and the desktop's sound when it
-is asked for. The client lists ZRLE, Raw, Cursor, Cursor With Alpha,
+is asked for. The client lists wlshare's VP9 encoding first — unless the form
+says ZRLE — then ZRLE, Raw, Cursor, Cursor With Alpha,
 DesktopSize, ExtendedDesktopSize, Fence, ContinuousUpdates, the density
 extension, Extended Clipboard and — only when the form's sound checkbox is
 ticked — the audio extension, and nothing else. The server never offers camera,
@@ -41,8 +42,8 @@ password, and it is what an app opened from the Finder starts at. `-server` on
 the command line skips it, which is what `scripts/run-macos.sh` and anything
 automated use.
 
-Only one thing is remembered on purpose. The host, the port, the user name and
-the sound checkbox are preferences; the password goes to the keychain, and
+Only one thing is remembered on purpose. The host, the port, the user name, the
+encoding and the sound checkbox are preferences; the password goes to the keychain, and
 only when **Remember the password** is ticked — a `defaults` plist is a file,
 and a password in one is a password in plain text. The preference keys are deliberately not `server` or `username`:
 those are the argument names, and `UserDefaults`' argument domain outranks
@@ -96,6 +97,28 @@ again and filled whole; otherwise the damage is uploaded with one
 rectangle: tracking each rectangle separately would upload less only for a
 desktop whose damage is two far-apart specks, which the merging the server
 already does makes uncommon.
+
+### VP9
+
+wlshare's VP9 encoding is the whole framebuffer as one stream: every update is
+one rectangle covering it, and each frame is coded against the frames before
+it, so one decoder, made at the first frame, takes them all in order. What the
+stream is — 8-bit 4:4:4 at BT.601 studio swing, a fixed quantizer, keyframes
+only at a new size or a full repaint — is the server's and `wlshare-rfb`'s; see
+wlshare's `docs/architecture.md`. The decoder writes the same `B, G, R, X` as
+every other rectangle, so the path from the framebuffer to the screen does not
+know which encoding filled it.
+
+It is the default, because it is what makes a desktop that moves cheap to
+watch, and it is not exact: a desktop that settles is shown at the server's
+quality, not pixel for pixel. **ZRLE** on the form is the exact picture, and is
+also what a server without the encoding sends — which is why the title names
+VP9 only once a VP9 frame has arrived.
+
+A frame is decoded with the framebuffer's lock let go, into a buffer of the
+session's own, and copied in under it: a whole-desktop decode is milliseconds,
+and the window must not wait on it to draw. Only the session resizes the
+framebuffer, so its size cannot change between the two.
 
 The desktop is drawn as one textured quad over the drawable. At rest the two are
 the same size and every texel lands on its own pixel; the sampler only does
