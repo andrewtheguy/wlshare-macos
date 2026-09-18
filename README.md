@@ -10,7 +10,7 @@ desktop's sound. The screen arrives as wlshare's VP9 stream — the whole deskto
 to its `vp9_quality_min` — or, when the connect
 form's **Encoding** says so, as exact ZRLE. VP9 is asked for alone: a server
 without it ends the session with an error instead of sending ZRLE, and the
-window's title ends in `· VP9` while it is what is arriving. The desktop is asked to be exactly the window's backing store,
+window's title ends in `· VP9` when the form chose it. The desktop is asked to be exactly the window's backing store,
 drawn at the window's density, so what is on screen is one device pixel per
 desktop pixel and never resampled. The clipboard is text, both ways, as UTF-8.
 The sound is wlshare's lossless FLAC stream, played on the Mac's default output,
