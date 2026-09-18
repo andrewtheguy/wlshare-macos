@@ -97,6 +97,15 @@ impl Client {
         visit(&fb, damage)
     }
 
+    /// The framebuffer's size, leaving its damage for [`Client::with_frame`].
+    /// Anything that only wants the size must ask here: a status read through
+    /// `with_frame` takes the damage the next draw needed, and that draw then
+    /// uploads nothing.
+    pub fn desktop_size(&self) -> (u16, u16) {
+        let fb = self.shared.framebuffer.lock().unwrap();
+        (fb.width(), fb.height())
+    }
+
     /// Say that the whole framebuffer must be uploaded again, for a window that
     /// has lost the texture it was drawing from.
     pub fn damage_all(&self) {
@@ -219,6 +228,21 @@ mod tests {
         let start = std::time::Instant::now();
         drop(client);
         assert!(start.elapsed() < std::time::Duration::from_secs(2), "dropping took {:?}", start.elapsed());
+    }
+
+    /// The window reads the status on every wake and draws after it, so a
+    /// status that took the damage left every draw with nothing to upload and
+    /// the desktop black until something changed between the two.
+    #[test]
+    fn reading_the_status_leaves_the_damage_for_the_draw() {
+        let client = Client::connect(nowhere(), Surface { width: 800, height: 600, scale: 2.0 });
+        client.shared.framebuffer.lock().unwrap().resize(64, 48);
+
+        let mut status = ffi::WlshareStatus { state: 0, width: 0, height: 0, scale: 0.0 };
+        unsafe { ffi::wlshare_client_status(&raw const client, &raw mut status) };
+        assert_eq!((status.width, status.height), (64, 48));
+
+        client.with_frame(|_, damage| assert_eq!(damage, Some(Region { x: 0, y: 0, width: 64, height: 48 })));
     }
 
     #[test]
