@@ -63,9 +63,10 @@ scripts/package-mac.sh   # dist/package/WlshareViewer-macos-arm64.dmg
 - A Mac with Xcode (for `xcodebuild` and the Metal toolchain —
   `xcodebuild -downloadComponent MetalToolchain` if `metal` is missing) and
   [xcodegen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`).
-- Rust. The core links `wlshare-rfb`, where every protocol byte comes from,
+- Rust. The core links `wlshare-client`, the session both native clients are
+  built on, and `wlshare-rfb` under it, where every protocol byte comes from —
   pinned in `core/Cargo.toml` to a released tag of the `wlshare` repo and
-  fetched by cargo — no sibling checkout needed to build.
+  fetched by cargo, no sibling checkout needed to build.
 
 ## Connecting
 
@@ -109,11 +110,13 @@ which is what a connection refused for want of one brings back.
 ```sh
 ci/ci.sh                # the Rust core's tests and clippy, then the app build
 ci/ci.sh package        # the Release build and the disk image a release ships
-ci/ci.sh live           # the session tests, against a real wlshare
+ci/ci.sh live           # wlshare-client's session tests, from ../wlshare, against a real wlshare
 ```
 
-`core/` builds and tests on Linux too, and that is the fast loop: the protocol,
-the decoders and the session state machine have nothing Apple in them.
+`core/` builds and tests on Linux too, and that is the fast loop: the key and
+wheel tables and the ABI are plain Rust, and the session under them — the
+protocol, the decoders and the state machine — is `wlshare-client`'s, which has
+its own tests in the `wlshare` repo.
 
 ## Releasing
 
@@ -126,8 +129,9 @@ tag is refused.
 
 ## Layout
 
-- `core/` — the Rust crate: session, framebuffer, keysym and wheel tables, and
-  the C ABI in `src/ffi.rs` behind `include/wlshare_client.h`.
+- `core/` — the Rust crate: `wlshare-client`'s session with the Mac key and
+  wheel tables and the C ABI in `src/ffi.rs`, behind `include/wlshare_client.h`,
+  on top.
 - `Sources/WlshareViewer/` — the app: the connect form, the window, the Metal
   view, the input.
 - `scripts/package-mac.sh` — the release build and the disk image; the release

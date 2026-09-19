@@ -8,11 +8,7 @@
 //! notches, and the leftovers kept for the next event or a slow drag scrolls
 //! nothing at all.
 
-/// The four wheel "buttons" of the RFB button mask, as the server reads them.
-pub const WHEEL_UP: u8 = 8;
-pub const WHEEL_DOWN: u8 = 16;
-pub const WHEEL_LEFT: u8 = 32;
-pub const WHEEL_RIGHT: u8 = 64;
+pub use wlshare_client::{WHEEL_DOWN, WHEEL_LEFT, WHEEL_RIGHT, WHEEL_UP};
 
 /// Points of a precise (trackpad or Magic Mouse) scroll that make one notch.
 /// AppKit measures those in points of content, and three lines of text is about
