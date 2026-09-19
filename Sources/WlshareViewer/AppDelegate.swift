@@ -216,7 +216,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         file.addItem(withTitle: "Disconnect", action: #selector(disconnect), keyEquivalent: "d")
         for item in file.items { item.target = self }
 
-        for menu in [app, file] {
+        // The connection form's fields take ⌘C and the rest only through this
+        // menu: a text field has no key equivalents of its own. The items have
+        // no target, so they go to whatever has the keyboard.
+        let edit = NSMenu(title: "Edit")
+        edit.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        edit.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
+            .keyEquivalentModifierMask = [.command, .shift]
+        edit.addItem(.separator())
+        edit.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+
+        for menu in [app, file, edit] {
             let item = NSMenuItem()
             item.title = menu.title
             item.submenu = menu
