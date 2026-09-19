@@ -173,13 +173,15 @@ final class ConnectWindow: NSObject, NSWindowDelegate, NSTableViewDataSource, NS
 
     /// Fill the form with a destination from the command line, before it is
     /// ever shown: the profile it matched if there is one, or a desktop not
-    /// saved yet. A connection refused brings this back as it was tried.
+    /// saved yet. A connection refused brings this back as it was tried —
+    /// with the command line's sound and encoding, not the profile's.
     func load(_ destination: Destination, profile: UUID?) {
         commit()
         select(profile)
-        if profile == nil {
-            fill(Profile(destination))
-        }
+        var tried = profile.flatMap { profiles.profile($0) } ?? Profile(destination)
+        tried.audio = destination.audio
+        tried.encoding = destination.encoding
+        fill(tried)
         password.stringValue = destination.password
     }
 
@@ -206,9 +208,14 @@ final class ConnectWindow: NSObject, NSWindowDelegate, NSTableViewDataSource, NS
         panel.orderOut(nil)
     }
 
-    /// Keep what is typed into the form, for an app about to quit.
-    func save() {
-        commit()
+    /// Keep what is typed into the form, for an app about to quit. False when
+    /// it cannot be kept, with the form up and the reason on it.
+    func save() -> Bool {
+        guard commit() else {
+            panel.makeKeyAndOrderFront(nil)
+            return false
+        }
+        return true
     }
 
     /// Closing keeps what is typed, and a port that is not one or a password

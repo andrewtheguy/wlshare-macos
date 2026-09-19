@@ -60,8 +60,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         true
     }
 
+    /// Not while the form holds something that cannot be saved: it stays up
+    /// with the reason, as it does when its own window is closed.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        form.save() ? .terminateNow : .terminateCancel
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
-        form.save()
         // Ends the session and joins its thread while there is still a window
         // for its callbacks to have reached.
         audio?.stop()
