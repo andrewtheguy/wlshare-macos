@@ -369,6 +369,21 @@ final class DesktopView: MTKView {
         client.key(down: true, keysym: keysym)
     }
 
+    /// The Edit menu's chords are the desktop's while it has the keyboard —
+    /// ⌘C here is Super and C, like any other ⌘ chord no menu wants.
+    /// The window offers a key equivalent to its views before the menu bar
+    /// sees it, so claiming it here is what keeps it from the menu.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let chord = event.modifierFlags.intersection([.command, .shift, .option, .control])
+        let key = event.charactersIgnoringModifiers?.lowercased()
+        guard window?.firstResponder === self,
+              let edit = NSApp.mainMenu?.item(withTitle: "Edit")?.submenu,
+              edit.items.contains(where: { $0.keyEquivalent == key && $0.keyEquivalentModifierMask == chord })
+        else { return super.performKeyEquivalent(with: event) }
+        keyDown(with: event)
+        return true
+    }
+
     override func keyUp(with event: NSEvent) {
         guard let keysym = held.removeValue(forKey: event.keyCode) else { return }
         client.key(down: false, keysym: keysym)
