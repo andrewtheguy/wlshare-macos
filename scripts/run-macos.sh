@@ -6,8 +6,8 @@
 #   scripts/run-macos.sh 127.0.0.1:5999         # a server put there by a tunnel
 #
 # A password is not one of the words this takes: an argument list is in the
-# shell's history and in everyone's `ps`. The app reads a remembered one out of
-# the keychain and asks for anything else in its own form.
+# shell's history and in everyone's `ps`. The app uses the one saved in a
+# profile for the same destination and asks for anything else in its own form.
 #
 # This needs a window server, so from the Linux checkout it must be started
 # inside the macsandbox tmux session rather than over plain ssh — CLAUDE.local.md

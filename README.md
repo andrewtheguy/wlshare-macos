@@ -71,13 +71,18 @@ scripts/package-mac.sh   # dist/package/WlshareViewer-macos-arm64.dmg
 
 ## Connecting
 
-Opening the app — from the Finder, from the Dock, from `open` — puts up a form
-for the host, the port, the user name and the password, and connects when you
-fill it in. It comes back filled with the last destination, and with the
-password too if you ticked **Remember the password**, which puts it in the
-keychain and nowhere else. **File ▸ Connect…** (⌘N) asks again, **Disconnect**
-(⌘D) ends the session, and a connection that is refused or drops brings the form
-back with the reason on it.
+Opening the app — from the Finder, from the Dock, from `open` — puts up the
+saved desktops as a list, and beside it a form for the one selected: a name,
+the host, the port, the user name, the password, the encoding and the sound.
+**Connect** (or a double-click on the row) saves the form into that profile and
+connects; with nothing in the list yet it makes the first one of what you
+typed. **+** starts a new desktop and **−** deletes the selected one. A row is
+its name and where it goes — there is no picture of the desktop.
+
+The password is saved only for a profile whose **Save the password** is ticked,
+and then sealed: see [Saved passwords](#saved-passwords). **File ▸ Connect…**
+(⌘N) brings the list back, **Disconnect** (⌘D) ends the session, and a
+connection that is refused or drops brings it back with the reason on it.
 
 An empty password asks for the `None` security type; anything else asks for
 RSA-AES, which is the only type this client authenticates with — and the one
@@ -102,9 +107,23 @@ WlshareViewer.app/Contents/MacOS/WlshareViewer -server host:port -username me -a
 `-encoding` is the form's encoding, `vp9` (the default) or `zrle`.
 
 There is no password argument, deliberately: an argument list is in the shell's
-history and in everyone's `ps`. A password that was remembered for that
-destination comes from the keychain, and anything else is typed into the form —
+history and in everyone's `ps`. A password saved in a profile for the same
+host, port and user name is used, and anything else is typed into the form —
 which is what a connection refused for want of one brings back.
+
+### Saved passwords
+
+They are kept the way Chrome and Slack keep theirs. The keychain holds one item,
+**WlshareViewer Safe Storage**: a random 256-bit key, made when the first
+password is saved. Each saved password is sealed with it (AES-GCM, bound to its
+profile) and kept with the profiles in the app's preferences; the password is
+never written anywhere in the clear.
+
+One key rather than one keychain item per password is what keeps the keychain
+quiet for an app that is ad-hoc signed. Every build is a new signature, and
+macOS asks before a new signature reads an item — so a new build asks once, the
+first time a saved password is needed, and not once per desktop. Deleting the
+item in Keychain Access forgets every saved password at once.
 
 ## Checks
 
