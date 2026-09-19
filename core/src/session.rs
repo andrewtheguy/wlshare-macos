@@ -342,7 +342,7 @@ async fn connect_and_run(config: Config, surface: Surface, shared: &Arc<Shared>,
         status.name = init.name.clone();
         status.state = State::Ready;
     }
-    shared.framebuffer.lock().unwrap().resize(init.width, init.height);
+    shared.framebuffer.lock().unwrap().resize(init.width, init.height)?;
     shared.wake();
 
     // The server's own format, so that nothing on this path swizzles a pixel.
@@ -865,7 +865,7 @@ impl Live {
                 Ok(Applied::Drew)
             }
             RectBody::DesktopSize => {
-                self.resize(width, height);
+                self.resize(width, height)?;
                 Ok(Applied::Resized)
             }
             // The rectangle's y is the status: anything but zero answers a
@@ -875,7 +875,7 @@ impl Live {
                 Ok(Applied::Nothing)
             }
             RectBody::ExtendedDesktopSize { .. } => {
-                self.resize(width, height);
+                self.resize(width, height)?;
                 Ok(Applied::Resized)
             }
             RectBody::Cursor { pixels, mask } => {
@@ -918,7 +918,13 @@ impl Live {
             None => self.vp9.insert(Vp9Decoder::new().context("starting the VP9 decoder")?),
         };
         let (w, h) = (usize::from(width), usize::from(height));
-        self.scratch.resize(w * h * 4, 0);
+        // Fallible: a desktop there is not the memory for twice ends the
+        // session, not the process.
+        let len = w * h * 4;
+        self.scratch
+            .try_reserve_exact(len.saturating_sub(self.scratch.len()))
+            .with_context(|| format!("allocating a {width}x{height} VP9 frame"))?;
+        self.scratch.resize(len, 0);
         decoder.decode_rect(frame, w, h, &mut self.scratch, w * 4).with_context(|| format!("decoding a {width}x{height} VP9 frame"))?;
         let mut fb = self.shared.framebuffer.lock().unwrap();
         if !fb.put_raw(0, 0, width, height, &self.scratch) {
@@ -931,9 +937,9 @@ impl Live {
         Ok(())
     }
 
-    fn resize(&mut self, width: u16, height: u16) {
+    fn resize(&mut self, width: u16, height: u16) -> anyhow::Result<()> {
         log::info!("the desktop is now {width}x{height}");
-        self.shared.framebuffer.lock().unwrap().resize(width, height);
+        self.shared.framebuffer.lock().unwrap().resize(width, height)
     }
 
     fn set_cursor(&mut self, image: Option<CursorImage>) {
@@ -1093,7 +1099,7 @@ mod tests {
     async fn a_resize_turns_continuous_updates_on_over_the_framebuffer_that_is_now() {
         let mut live = live();
         let mut writer = writer();
-        live.shared.framebuffer.lock().unwrap().resize(1024, 768);
+        live.shared.framebuffer.lock().unwrap().resize(1024, 768).unwrap();
 
         let rect = client::Rect { x: 0, y: 0, width: 800, height: 600, body: RectBody::DesktopSize };
         live.handle(ServerMsg::Update(vec![rect]), &mut writer).await.unwrap();
@@ -1237,7 +1243,7 @@ mod tests {
     fn pixels_other_than_vp9_end_a_vp9_session() {
         let mut live = live();
         live.encoding = Encoding::Vp9;
-        live.shared.framebuffer.lock().unwrap().resize(4, 2);
+        live.shared.framebuffer.lock().unwrap().resize(4, 2).unwrap();
         live.shared.framebuffer.lock().unwrap().take_damage();
         let raw = client::Rect { x: 0, y: 0, width: 4, height: 2, body: RectBody::Raw(vec![0x7F; 4 * 2 * 4]) };
         let error = live.apply(raw.clone()).err().expect("Raw in a VP9 session");
@@ -1257,7 +1263,7 @@ mod tests {
 
         let mut live = live();
         live.encoding = Encoding::Vp9;
-        live.shared.framebuffer.lock().unwrap().resize(64, 32);
+        live.shared.framebuffer.lock().unwrap().resize(64, 32).unwrap();
         live.shared.framebuffer.lock().unwrap().take_damage();
         let mut writer = writer();
         let mut encoder = Vp9Encoder::new(64, 32, QUALITY_MAX).unwrap();
@@ -1282,7 +1288,7 @@ mod tests {
     #[test]
     fn a_vp9_rectangle_nobody_asked_for_or_not_the_whole_desktop_ends_the_session() {
         let mut live = live();
-        live.shared.framebuffer.lock().unwrap().resize(64, 32);
+        live.shared.framebuffer.lock().unwrap().resize(64, 32).unwrap();
         let rect = |x, width| client::Rect { x, y: 0, width, height: 32, body: RectBody::Vp9(vec![0; 8]) };
         assert!(live.apply(rect(0, 64)).is_err(), "ZRLE was asked for");
         live.encoding = Encoding::Vp9;
@@ -1347,27 +1353,27 @@ mod tests {
     fn a_pointer_lands_where_it_was_aimed_whatever_the_desktop_is_doing() {
         let live = live();
         // Matched, which is the steady state: the position is itself.
-        live.shared.framebuffer.lock().unwrap().resize(800, 600);
+        live.shared.framebuffer.lock().unwrap().resize(800, 600).unwrap();
         assert_eq!(live.to_framebuffer(0, 0), (0, 0));
         assert_eq!(live.to_framebuffer(400, 300), (400, 300));
         assert_eq!(live.to_framebuffer(799, 599), (799, 599));
 
         // Mid-resize, the desktop still half the window: the fractions hold and
         // nothing lands outside the framebuffer.
-        live.shared.framebuffer.lock().unwrap().resize(400, 300);
+        live.shared.framebuffer.lock().unwrap().resize(400, 300).unwrap();
         assert_eq!(live.to_framebuffer(400, 300), (200, 150));
         assert_eq!(live.to_framebuffer(799, 599), (399, 299));
         assert_eq!(live.to_framebuffer(65535, 65535), (399, 299));
 
         // No desktop at all, which is every event before ServerInit.
-        live.shared.framebuffer.lock().unwrap().resize(0, 0);
+        live.shared.framebuffer.lock().unwrap().resize(0, 0).unwrap();
         assert_eq!(live.to_framebuffer(10, 10), (0, 0));
     }
 
     #[test]
     fn a_rectangle_outside_the_framebuffer_ends_the_session_rather_than_the_process() {
         let mut live = live();
-        live.shared.framebuffer.lock().unwrap().resize(64, 64);
+        live.shared.framebuffer.lock().unwrap().resize(64, 64).unwrap();
         let rect = client::Rect { x: 60, y: 0, width: 8, height: 8, body: RectBody::Raw(vec![0; 8 * 8 * 4]) };
         assert!(live.apply(rect).is_err());
 
@@ -1398,7 +1404,7 @@ mod tests {
     #[test]
     fn a_refused_resize_leaves_the_framebuffer_alone() {
         let mut live = live();
-        live.shared.framebuffer.lock().unwrap().resize(64, 64);
+        live.shared.framebuffer.lock().unwrap().resize(64, 64).unwrap();
         // Status 1 in the rectangle's y: the request failed.
         let rect = client::Rect { x: 1, y: 1, width: 800, height: 600, body: RectBody::ExtendedDesktopSize { screens: Vec::new() } };
         assert!(matches!(live.apply(rect), Ok(Applied::Nothing)));
