@@ -45,24 +45,45 @@ asked for as fatal.
 ## Where a session begins
 
 The app is packaged, so the destination cannot only be a command-line argument:
-`ConnectWindow` is a form for the host, the port, the user name and the
-password, and it is what an app opened from the Finder starts at. `-server` on
-the command line skips it, which is what `scripts/run-macos.sh` and anything
-automated use.
+`ConnectWindow` is the saved desktops as a list beside a form for the one
+selected — a name, the host, the port, the user name, the password — and it is
+what an app opened from the Finder starts at. `-server` on the command line
+skips it, which is what `scripts/run-macos.sh` and anything automated use.
 
-Only one thing is remembered on purpose. The host, the port, the user name, the
-encoding and the sound checkbox are preferences; the password goes to the keychain, and
-only when **Remember the password** is ticked — a `defaults` plist is a file,
-and a password in one is a password in plain text. The preference keys are deliberately not `server` or `username`:
-those are the argument names, and `UserDefaults`' argument domain outranks
-anything written to the standard one, so a launch with arguments would otherwise
-poison what the form reads back.
+Every connection made from the form is to a profile. **Connect** writes the form
+into the selected one, or makes a new one of it when none is selected, so the
+list is the history too; the form is also written back when the selection
+moves, when the window closes and when the app quits. A row is two lines of
+text, the name and who goes where, and nothing is captured from the desktop to
+put beside it. The profiles, and which one was showing, are a JSON array in the
+app's defaults, under keys that are deliberately not argument names: those are
+`server`, `username`, `audio` and `encoding`, and `UserDefaults`' argument
+domain outranks anything written to the standard one.
+
+A password is saved only for a profile whose **Save the password** is ticked,
+and it is saved sealed, the way Chrome's and Slack's Safe Storage do it. The
+keychain holds exactly one item, `WlshareViewer Safe Storage`: 32 random bytes,
+base64, made the first time a password is saved and never by a read — a key made
+when the old one has gone would open nothing the old one sealed. `SafeStorage`
+seals each password with AES-GCM under that key, with the profile's id as the
+associated data so a sealed password moved onto another profile does not open,
+and the result sits in the profile beside its host. The key is read from the
+keychain at most once a launch.
+
+One key instead of an item per password is for the signature: the app is
+ad-hoc signed, every build is a different code identity, and the keychain asks
+before an item is read by an identity that did not make it. With one item that
+is one question per build rather than one per saved desktop. A saved password is
+opened only to connect with, never to show: the form's field stays empty with
+*saved* as its placeholder, and what is typed there replaces it. A refusal from
+the keychain, or a sealed password the key does not open, is a message on the
+form and not a connection attempted without it.
 
 The password is not an argument name, because an argument list is in the shell's
-history and in everyone's `ps`. A `-server` launch takes the password remembered
-for that destination out of the keychain, and a destination with none — or one
-that is refused — ends up at the form, which is the only place a password is
-ever typed.
+history and in everyone's `ps`. A `-server` launch takes the password saved in
+the first profile with the same host, port and user name, and a destination with
+none — or one that is refused — ends up at the form, which is the only place a
+password is ever typed.
 
 A session ends where it began. A refused connection, a dropped one and
 **Disconnect** all put the form back up with the reason on it, and only then

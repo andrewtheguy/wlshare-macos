@@ -13,10 +13,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var clipboard: ClipboardSync?
     private var audio: AudioOutput?
     private let banner = NSTextField(labelWithString: "")
-    private let form = ConnectWindow()
-    /// The last destination tried, which is what the form comes back filled
-    /// with — including a password that was typed but not remembered, so a
-    /// connection that failed for some other reason can be retried as it is.
+    private let profiles = ProfileStore()
+    private lazy var form = ConnectWindow(profiles: profiles)
+    /// The destination of the session in the window, for its title.
     private var last: Destination?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -28,7 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         banner.alignment = .center
         banner.textColor = .white
         banner.translatesAutoresizingMaskIntoConstraints = false
-        form.onConnect = { [weak self] destination in self?.open(destination) }
+        form.onConnect = { [weak self] destination, _ in self?.open(destination) }
 
         makeMenu()
         // The moments the desktop window becomes the one in use, which is when
@@ -38,7 +37,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         center.addObserver(self, selector: #selector(inUse), name: NSWindow.didBecomeKeyNotification, object: nil)
         NSApp.setActivationPolicy(.regular)
         // A launch from a shell says where to go; a launch from the Finder asks.
-        if let destination = Destination.fromArguments() {
+        if var destination = Destination.fromArguments() {
+            // The password saved for the same place and user, if any. One that
+            // will not open is the same as none: the server refuses, and the
+            // form is where it is typed.
+            let profile = profiles.profile(matching: destination)
+            destination.password = (try? profile?.password()) ?? ""
+            form.load(destination, profile: profile?.id)
             open(destination)
             NSApp.activate(ignoringOtherApps: true)
         } else {
@@ -51,6 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        form.save()
         // Ends the session and joins its thread while there is still a window
         // for its callbacks to have reached.
         audio?.stop()
@@ -189,7 +195,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func ask(error: String? = nil) {
-        form.show(last ?? Destination.remembered(), error: error)
+        form.show(error: error)
     }
 
     @objc private func askWhereToConnect() {
