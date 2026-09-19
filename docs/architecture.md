@@ -11,17 +11,25 @@ desktop. Two halves, and the line between them is a C header:
 ```
 
 `core/` is a Rust crate that owns the socket, the RFB session, the decoders and
-the framebuffer they write into. `Sources/WlshareViewer/` is an AppKit app that
+the framebuffer they write into — through `wlshare-client`, the session both
+native apps are built on, with the Mac-only parts on top. `wlshare-client`, in
+the `wlshare` repo, is everything but the window: the handshake, the density
+and resize rules (`Live::ask_for`), the decoders, the framebuffer, the
+pointer's shape, the clipboard and the sound — the names in this document that
+are not in this repo are its. `core/` holds what is the Mac's: the table that
+turns a key code into a keysym (`keysym.rs`), the gathering of lines and points
+into notches (`wheel.rs`), and the C ABI (`ffi.rs`), with a `Client` that is
+`wlshare-client`'s plus the wheel's leftovers. `Sources/WlshareViewer/` is an AppKit app that
 owns a window, a Metal texture and the events macOS hands it. The app parses no
 protocol and the core knows no AppKit, which is what lets the whole of the first
 be unit-tested on a machine that has never seen the second.
 
 Every protocol byte comes from `wlshare-rfb` — the same crate the daemon is
-built on, read from the other end. It is a cargo dependency on a released tag of
-the `wlshare` repo rather than the sibling checkout, so what this repo builds is
+built on, read from the other end — through `wlshare-client`, which re-exports
+it. The dependency is a released tag of the `wlshare` repo rather than the sibling checkout, so what this repo builds is
 decided by `core/Cargo.toml` and `core/Cargo.lock` and not by the state of
-somebody's `../wlshare`. A wire change belongs there, is released from there,
-and arrives here as a bumped tag.
+somebody's `../wlshare`. A session or wire change belongs there, is released
+from there, and arrives here as a bumped tag.
 
 ## Scope
 
@@ -151,9 +159,9 @@ down:
   through wlr-output-management, whose configurations carry a serial the
   compositor bumps on every commit, so the second of two is cancelled and comes
   back as `invalid layout` — a perfectly good size refused for no visible
-  reason. A size that changes while a density is in flight waits for the
-  `OutputScale` the extension promises for every declaration, and then goes out
-  as a `SetDesktopSize`. Recognising *that* answer and not
+  reason. Whatever the window asks for while a density is in flight — a size,
+  or a density of its own — waits for the `OutputScale` the extension promises
+  for every declaration, and only the latest then goes out. Recognising *that* answer and not
   the one every `SetEncodings` is answered with is what `Live::released_by`
   is for.
 - **The scale and the size must come from the same place.** `postSurface` reads
@@ -301,7 +309,7 @@ cleanly and corrupts memory at run time; nothing else would catch it.
 which is what `project.yml` points the app's search paths at. There is no
 xcframework and no pinned release zip — the pattern `../ezvpn-apple` uses for a
 core in another repo — because the core is in *this* repo and has one consumer.
-What is pinned is the crate underneath it, by cargo, on a tag.
+What is pinned is the session underneath it, by cargo, on a tag.
 
 `ci/ci.sh` runs the jobs; from the Linux checkout `scripts/mac-ci.sh` pushes
 this tree, the sibling `../wlshare` and `../devtools` to the Mac and runs them

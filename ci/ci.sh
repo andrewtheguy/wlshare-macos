@@ -14,7 +14,8 @@
 #   core     the Rust core: cargo test, then clippy with warnings denied
 #   app      build the core for arm64 and build the app against it
 #   package  the Release build and the disk image a release ships
-#   live     the ignored session tests, against WLSHARE_TEST_SERVER
+#   live     wlshare-client's ignored session tests, from ../wlshare, against
+#            WLSHARE_TEST_SERVER
 #
 # `live` is not in the default set: it needs a wlshare to talk to, which on
 # this machine means a tunnel someone put there. Ask for it by name. Nor is
@@ -86,8 +87,12 @@ job_package() {
 
 job_live() {
     step 'live: the session tests'
+    # The session is wlshare-client's, and so are its live tests; they run from
+    # the sibling checkout scripts/mac-ci.sh pushes beside this one.
+    [ -d ../wlshare/crates/wlshare-client ] || die '../wlshare is not beside this checkout'
     [ -n "${WLSHARE_TEST_SERVER:-}" ] || echo "[ci] WLSHARE_TEST_SERVER unset; trying 127.0.0.1:5999"
-    (cd core && cargo test --test live_session -- --ignored --nocapture --test-threads=1)
+    (cd ../wlshare && WLSHARE_TEST_SERVER="${WLSHARE_TEST_SERVER:-127.0.0.1:5999}" \
+        cargo test -p wlshare-client --test live_session -- --ignored --nocapture --test-threads=1)
 }
 
 for job in "${jobs[@]}"; do
