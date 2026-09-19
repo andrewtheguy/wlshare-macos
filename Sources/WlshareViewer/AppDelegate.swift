@@ -39,10 +39,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // A launch from a shell says where to go; a launch from the Finder asks.
         if var destination = Destination.fromArguments() {
             // The password saved for the same place and user, if any. One that
-            // will not open is the same as none: the server refuses, and the
-            // form is where it is typed.
+            // will not open is not tried as none: the form says why, and is
+            // where it is typed.
             let profile = profiles.profile(matching: destination)
-            destination.password = (try? profile?.password()) ?? ""
+            do {
+                destination.password = try profile?.password() ?? ""
+            } catch {
+                form.load(destination, profile: profile?.id)
+                return ask(error: error.localizedDescription)
+            }
             form.load(destination, profile: profile?.id)
             open(destination)
             NSApp.activate(ignoringOtherApps: true)

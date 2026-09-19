@@ -211,7 +211,9 @@ final class ConnectWindow: NSObject, NSWindowDelegate, NSTableViewDataSource, NS
         commit()
     }
 
-    func windowWillClose(_ notification: Notification) {
+    /// Closing keeps what is typed, and a port that is not one or a password
+    /// that will not seal keeps the window open with the reason on it.
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
         commit()
     }
 
@@ -289,6 +291,8 @@ final class ConnectWindow: NSObject, NSWindowDelegate, NSTableViewDataSource, NS
             fail("A host is needed.", host)
             return
         }
+        // Taken before the commit, which drops it when the checkbox is off.
+        let saved = current.flatMap { profiles.profile($0) }?.sealedPassword
         guard commit(creating: true), let current, let profile = profiles.profile(current) else { return }
         // What is typed wins; with nothing typed, what is saved. A password
         // saved and no longer wanted is still the one to connect with this
@@ -296,7 +300,7 @@ final class ConnectWindow: NSObject, NSWindowDelegate, NSTableViewDataSource, NS
         let typed = password.stringValue
         let password: String
         do {
-            password = typed.isEmpty ? try profile.password() ?? "" : typed
+            password = try typed.isEmpty ? saved.map { try SafeStorage.open($0, for: profile.id) } ?? "" : typed
         } catch {
             fail(error.localizedDescription, self.password)
             return
