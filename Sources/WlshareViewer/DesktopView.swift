@@ -410,8 +410,11 @@ final class DesktopView: MTKView {
     }
 
     /// Let go of everything this window is holding — it is losing the keyboard,
-    /// and a modifier left down on the desktop sticks there.
-    override func resignFirstResponder() -> Bool {
+    /// and a modifier left down on the desktop sticks there. Losing it does not
+    /// always change the first responder: another window taking the key status
+    /// leaves this one's responder where it was, so the session calls this from
+    /// `windowDidResignKey` as well.
+    func releaseInput() {
         for (_, keysym) in held {
             client.key(down: false, keysym: keysym)
         }
@@ -420,6 +423,10 @@ final class DesktopView: MTKView {
             buttons = 0
             client.pointer(buttons: 0, x: lastPosition.x, y: lastPosition.y)
         }
+    }
+
+    override func resignFirstResponder() -> Bool {
+        releaseInput()
         return super.resignFirstResponder()
     }
 }

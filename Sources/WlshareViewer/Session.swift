@@ -56,12 +56,16 @@ final class Session: NSObject, NSWindowDelegate {
         window.isReleasedWhenClosed = false
         window.center()
         // A desktop opens where it was last left, under the profile it was
-        // connected from. A second window on the same desktop cannot have that
-        // name — AppKit gives a frame name to one window at a time — so it
-        // cascades off whatever was opened before it instead.
+        // connected from. Taking the name only says no other window has it —
+        // AppKit gives a frame name to one window at a time — and there is a
+        // frame under it only once that profile has been left somewhere. A
+        // window with no place of its own cascades off the one before it, and a
+        // window that has one is where the next cascade starts, so a desktop
+        // opened twice does not land on itself. Cascading from `.zero` moves
+        // nothing; it only reads the window's own top-left.
         let name = profile.map { "desktop-\($0.uuidString)" }
-        if let name, window.setFrameAutosaveName(name) {
-            window.setFrameUsingName(name)
+        if let name, window.setFrameAutosaveName(name), window.setFrameUsingName(name) {
+            Self.cascade = window.cascadeTopLeft(from: .zero)
         } else {
             Self.cascade = window.cascadeTopLeft(from: Self.cascade)
         }
@@ -135,6 +139,13 @@ final class Session: NSObject, NSWindowDelegate {
     /// Give the desktop the Mac's clipboard: this window is the one in use.
     func offerClipboard() {
         clipboard?.offer()
+    }
+
+    /// The window lost the keyboard — to another desktop, or to the app going
+    /// behind. The first responder does not change when that happens, so this
+    /// is the only place the keys and buttons held down here are let go of.
+    func windowDidResignKey(_ notification: Notification) {
+        view?.releaseInput()
     }
 
     /// The person closed the window. The session goes with it, and the app is
