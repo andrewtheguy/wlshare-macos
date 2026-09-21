@@ -217,8 +217,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         close()
     }
 
-    /// The smallest menu that makes the app behave like one: without it there
-    /// is no ⌘Q, and every key the desktop does not want is a beep.
+    /// The smallest menu that makes the app behave like one, and the app's
+    /// only way in once the desktop has the keyboard: the view claims every
+    /// chord while it is first responder, so these items are clicked rather
+    /// than typed until the form is the window in use.
     private func makeMenu() {
         let root = NSMenu()
 
