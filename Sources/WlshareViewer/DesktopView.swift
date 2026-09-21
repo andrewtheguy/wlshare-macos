@@ -369,17 +369,21 @@ final class DesktopView: MTKView {
         client.key(down: true, keysym: keysym)
     }
 
-    /// The Edit menu's chords are the desktop's while it has the keyboard —
-    /// ⌘C here is Super and C, like any other ⌘ chord no menu wants.
-    /// The window offers a key equivalent to its views before the menu bar
-    /// sees it, so claiming it here is what keeps it from the menu.
+    /// Every chord is the desktop's while it has the keyboard. ⌘C, ⌘H, ⌘Q —
+    /// all of them are Super and a key here, because a chord the menu bar
+    /// takes is one the desktop never sees, and the desktop is what is being
+    /// typed at. The window offers a key equivalent to its views before the
+    /// menu bar sees it, so claiming it here is what keeps it from the menu.
+    ///
+    /// What is left to the Mac is what the Mac keeps for itself before the app
+    /// is offered anything — ⌘Tab, ⌘Space, the screenshot chords — and the
+    /// menu bar, which is still there to be clicked for the items whose chords
+    /// have gone to the desktop. Only chords come through here: a plain key,
+    /// an Option chord, Return and Escape all go straight to `keyDown`.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        let chord = event.modifierFlags.intersection([.command, .shift, .option, .control])
-        let key = event.charactersIgnoringModifiers?.lowercased()
-        guard window?.firstResponder === self,
-              let edit = NSApp.mainMenu?.item(withTitle: "Edit")?.submenu,
-              edit.items.contains(where: { $0.keyEquivalent == key && $0.keyEquivalentModifierMask == chord })
-        else { return super.performKeyEquivalent(with: event) }
+        guard window?.firstResponder === self else {
+            return super.performKeyEquivalent(with: event)
+        }
         keyDown(with: event)
         return true
     }
