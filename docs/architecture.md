@@ -216,6 +216,14 @@ with, so letting Shift go first cannot turn an `A` going up into an `a` that was
 never down, and the view lets go of everything it holds when it stops being
 first responder.
 
+A key held down under Command has to be let go of by hand. AppKit drops a
+`keyUp` whose modifiers carry Command inside `NSApplication.sendEvent` — it
+reaches neither the window nor the view — which costs a local app nothing,
+because a menu's key equivalent is over by the time the key comes back up. Here
+it is the difference between ⌘V and a V that is never released and repeats on
+the desktop for good, so `Application` overrides `sendEvent` and hands that
+release to whatever has the keyboard.
+
 RFB has no scroll event: a wheel notch is a press and release of one of four
 buttons above the real three. A Mac has no notches, so `core/src/wheel.rs`
 gathers lines or trackpad points into them, keeps the leftovers, throws them
