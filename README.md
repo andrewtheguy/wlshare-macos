@@ -84,7 +84,9 @@ adds a window rather than taking the place of the one that is up, so several
 desktops can be open at once, each with its own sound and its own clipboard.
 **File ▸ Connect…** brings the list back beside them and **Window** lists what
 is open; both are clicked, since every chord is the desktop's while it holds
-the keyboard. Each window remembers where it was left.
+the keyboard. A desktop opens where that profile was last left; a second window
+on the same profile, or one from the command line, cascades off the one before
+it instead.
 
 The password is saved only for a profile whose **Save the password** is ticked,
 and then sealed: see [Saved passwords](#saved-passwords). **Disconnect**
