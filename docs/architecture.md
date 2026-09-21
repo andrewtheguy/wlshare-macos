@@ -1,7 +1,8 @@
 # How the client is put together
 
-A native macOS window onto a [wlshare](https://github.com/andrewtheguy/wlshare)
-desktop. Two halves, and the line between them is a C header:
+A native macOS client for [wlshare](https://github.com/andrewtheguy/wlshare)
+desktops, a window to each. Two halves, and the line between them is a C
+header:
 
 ```
   AppKit ──▶ DesktopView ──▶ Client.swift ──▶ wlshare_client.h
@@ -85,10 +86,34 @@ the first profile with the same host, port and user name, and a destination with
 none — or one that is refused — ends up at the form, which is the only place a
 password is ever typed.
 
-A session ends where it began. A refused connection, a dropped one and
-**Disconnect** all put the form back up with the reason on it, and only then
-take the window away — in that order, because an app that is briefly down to no
-windows at all is an app that quits itself.
+## A desktop to a window
+
+A desktop opens in a window of its own and stays there: **Connect** adds a
+session beside whatever is already open, never in place of it, so several
+desktops stand side by side, each with its own socket, its own decoders and its
+own sound. `Session` is one of them — the window, the `Client` under it, the
+`DesktopView` in it, the clipboard and the sound — and `AppDelegate` holds the
+list of them and the form they are started from. Nothing is shared but the
+saved desktops: the Mac's clipboard is offered to the one window that has just
+become the one in use, and the menu bar's **Window** lists what is open, for
+bringing one forward from the menu rather than by a chord the desktop would
+take.
+
+A window is where its own session ends. Closing one ends that session and joins
+its thread while the window is still there for the callbacks to have reached,
+and closing the last one quits the app, as it does for any Mac app with nothing
+else on the screen. **Disconnect** closes the desktop in front — with the form
+up first when it is the only one — and **Connect…** brings the form back
+without touching what is open; both are clicked, their chords being the
+desktop's for as long as it holds the keyboard. A refused connection and a dropped one put
+the form up with the reason on it and which desktop it is about, and only then
+take that window away: in that order, because an app briefly down to no windows
+at all is an app that quits itself.
+
+A desktop opens where its window was last left, remembered under the profile it
+was connected from. A second window on the same profile cannot have that frame
+name — AppKit gives one to a window at a time — so it cascades off whatever was
+opened before it.
 
 ## Threads
 

@@ -11,9 +11,14 @@ import AppKit
 /// empty one and **−** deletes one. What is typed into the form is saved when
 /// the selection moves, on **Connect**, and when the window or the app closes.
 ///
+/// One form, as many desktops as have been opened from it: **Connect** puts it
+/// away and adds a window, never taking one away, and **File ▸ Connect…**
+/// brings it back beside whatever is open — clicked rather than typed, the
+/// desktop having every chord while it holds the keyboard.
+///
 /// It is also where a session ends up — a refused or dropped connection brings
-/// this back with the reason on it and the form as it was, password included,
-/// so there is somewhere to correct and retry.
+/// this back with the reason on it, which desktop it is about, and the form as
+/// it was left, so there is somewhere to correct and retry.
 @MainActor
 final class ConnectWindow: NSObject, NSWindowDelegate, NSTableViewDataSource, NSTableViewDelegate {
     /// Called with a destination that parsed and the profile it was saved as,

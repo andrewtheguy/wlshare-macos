@@ -1,22 +1,20 @@
 import AppKit
 import Metal
 
-/// The connect form, the window behind it, and the session between them.
-/// Everything that is about the desktop is in `DesktopView`; everything about
-/// the wire is in the Rust core.
+/// The connect form and the desktops opened from it.
+///
+/// Every connection is a `Session` of its own — its own window, its own
+/// socket, its own sound — and the app keeps as many as have been opened.
+/// **Connect** adds one; it never takes one away. Everything that is about a
+/// desktop is in `Session` and `DesktopView`; everything about the wire is in
+/// the Rust core.
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var device: MTLDevice?
-    private var window: NSWindow?
-    private var view: DesktopView?
-    private var client: Client?
-    private var clipboard: ClipboardSync?
-    private var audio: AudioOutput?
-    private let banner = NSTextField(labelWithString: "")
+    /// The sessions on the screen, oldest first.
+    private var sessions: [Session] = []
     private let profiles = ProfileStore()
     private lazy var form = ConnectWindow(profiles: profiles)
-    /// The destination of the session in the window, for its title.
-    private var last: Destination?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard let device = MTLCreateSystemDefaultDevice() else {
@@ -24,14 +22,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         self.device = device
 
-        banner.alignment = .center
-        banner.textColor = .white
-        banner.translatesAutoresizingMaskIntoConstraints = false
-        form.onConnect = { [weak self] destination, _ in self?.open(destination) }
+        form.onConnect = { [weak self] destination, profile in self?.open(destination, profile: profile) }
 
         makeMenu()
-        // The moments the desktop window becomes the one in use, which is when
-        // the Mac's clipboard is offered to the desktop.
+        // The moments a desktop window becomes the one in use, which is when
+        // the Mac's clipboard is offered to that desktop.
         let center = NotificationCenter.default
         center.addObserver(self, selector: #selector(inUse), name: NSApplication.didBecomeActiveNotification, object: nil)
         center.addObserver(self, selector: #selector(inUse), name: NSWindow.didBecomeKeyNotification, object: nil)
@@ -49,7 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return ask(error: error.localizedDescription)
             }
             form.load(destination, profile: profile?.id)
-            open(destination)
+            open(destination, profile: profile?.id)
             NSApp.activate(ignoringOtherApps: true)
         } else {
             ask()
@@ -67,134 +62,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        // Ends the session and joins its thread while there is still a window
+        // Ends every session and joins its thread while there is still a window
         // for its callbacks to have reached.
-        audio?.stop()
-        audio = nil
-        client = nil
-    }
-
-    // MARK: - A session
-
-    private func open(_ destination: Destination) {
-        guard let device else { return }
-        close()
-        last = destination
-
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1024, height: 768),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = destination.label
-        // A window made this way frees itself on close, which under ARC is one
-        // release too many the moment anything still holds it — and this holds
-        // it, because closing it is something the app does rather than only the
-        // person using it.
-        window.isReleasedWhenClosed = false
-        window.center()
-        // The next session opens at the size the last one was left at.
-        window.setFrameAutosaveName("desktop")
-        self.window = window
-
-        // The first surface is the window's own size, so the desktop is asked
-        // to match before the first frame rather than after it.
-        let backing = window.convertToBacking(NSRect(origin: .zero, size: window.contentLayoutRect.size)).size
-        let client = Client(
-            host: destination.host,
-            port: destination.port,
-            username: destination.username,
-            password: destination.password,
-            audio: destination.audio,
-            encoding: destination.encoding,
-            surface: Client.Surface(
-                width: UInt16(clamping: Int(backing.width)),
-                height: UInt16(clamping: Int(backing.height)),
-                scale: Double(window.backingScaleFactor)
-            )
-        )
-        self.client = client
-        clipboard = ClipboardSync(client: client)
-
-        let view = DesktopView(client: client, device: device)
-        view.autoresizingMask = [.width, .height]
-        window.contentView = view
-        self.view = view
-
-        view.addSubview(banner)
-        NSLayoutConstraint.activate([
-            banner.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            banner.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-        ])
-
-        client.onChange = { [weak self] in self?.changed() }
-        changed()
-
-        window.makeKeyAndOrderFront(nil)
-        window.makeFirstResponder(view)
-    }
-
-    /// Put the session and its window away. Nothing here quits the app on its
-    /// own: the caller has already brought the form up, and a window closed
-    /// while another is on screen is not the last one.
-    private func close() {
-        clipboard = nil
-        // Before the client: the audio device's thread reads from it until the
-        // engine has stopped.
-        audio?.stop()
-        audio = nil
-        client = nil
-        banner.removeFromSuperview()
-        // Ordered out rather than closed: `close()` runs the window out with an
-        // animation, and a window taken apart underneath one leaves its last
-        // frame on the screen for good.
-        window?.orderOut(nil)
-        window?.contentView = nil
-        view = nil
-        window = nil
-    }
-
-    /// The session has something new: a frame, a size, a state. Called on the
-    /// main queue.
-    private func changed() {
-        guard let client, let window, let view else { return }
-        let status = client.status
-        switch status.state {
-        case .connecting:
-            banner.stringValue = "Connecting to \(window.title)…"
-        case .ready:
-            banner.stringValue = ""
-            let name = status.name.isEmpty ? window.title : status.name
-            // A VP9 session is VP9 or nothing: a server without it ends it.
-            let encoding = last?.encoding == .vp9 ? " · VP9" : ""
-            window.title = "\(name) — \(status.desktop.width)×\(status.desktop.height) @ \(scale(status.scale))\(encoding)"
-            // Not before the server has said it has sound: a session without it
-            // keeps the Mac's audio device out of it.
-            if status.audio, audio == nil {
-                audio = AudioOutput(client: client)
-            }
-        case .closed:
-            // Back to the form with the reason on it, and only then take the
-            // window away, so the app is never down to no windows at all.
-            ask(error: status.error ?? "The connection closed.")
-            return close()
+        for session in sessions {
+            session.end()
         }
-        banner.isHidden = banner.stringValue.isEmpty
-        clipboard?.take()
-        view.needsDisplay = true
     }
 
-    /// The app came to the front, or a window became key: if it is the
-    /// desktop's, and the app is the one in front, the desktop may now be
-    /// pasted into.
-    @objc private func inUse() {
-        guard NSApp.isActive, let window, window.isKeyWindow else { return }
-        clipboard?.offer()
+    // MARK: - Sessions
+
+    /// Open a desktop in a window of its own, beside whatever is already open.
+    private func open(_ destination: Destination, profile: UUID?) {
+        guard let device else { return }
+        let session = Session(destination: destination, profile: profile, device: device)
+        session.onClosed = { [weak self] session, reason in
+            // The form first, with which desktop it is about, and only then the
+            // window away — in that order, because an app briefly down to no
+            // windows at all is an app that quits itself.
+            self?.ask(error: "\(session.destination.label): \(reason)")
+            session.end()
+        }
+        session.onEnded = { [weak self] session in
+            self?.sessions.removeAll { $0 === session }
+        }
+        sessions.append(session)
+        session.show()
     }
 
-    private func scale(_ scale: Double) -> String {
-        scale == scale.rounded() ? "\(Int(scale))×" : String(format: "%.2f×", scale)
+    /// The app came to the front, or a window became key: if it is a desktop's,
+    /// and the app is the one in front, that desktop may now be pasted into.
+    @objc private func inUse(_ notification: Notification) {
+        guard NSApp.isActive else { return }
+        let window = notification.object as? NSWindow ?? NSApp.keyWindow
+        guard let window, window.isKeyWindow else { return }
+        sessions.first { $0.window === window }?.offerClipboard()
     }
 
     private func fail(_ message: String) {
@@ -212,9 +113,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ask()
     }
 
+    /// Close the desktop in front. With nothing else on the screen the form
+    /// goes up first, so the app is never down to no windows at all.
     @objc private func disconnect() {
-        ask()
-        close()
+        guard let session = sessions.first(where: { $0.window.isKeyWindow }) else { return }
+        if sessions.count == 1 { ask() }
+        session.end()
+    }
+
+    /// **Disconnect** is about the desktop in front, and there is not always
+    /// one: the form may be what has the keyboard.
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        guard item.action == #selector(disconnect) else { return true }
+        return sessions.contains { $0.window.isKeyWindow }
     }
 
     /// The smallest menu that makes the app behave like one, and the app's
@@ -247,12 +158,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
 
-        for menu in [app, file, edit] {
+        // Several desktops at once need a way between them: AppKit keeps the
+        // open windows listed under this one, to be clicked like the rest of
+        // the menu bar while a desktop holds the keyboard.
+        let windows = NSMenu(title: "Window")
+        windows.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        windows.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
+        windows.addItem(.separator())
+
+        for menu in [app, file, edit, windows] {
             let item = NSMenuItem()
             item.title = menu.title
             item.submenu = menu
             root.addItem(item)
         }
         NSApp.mainMenu = root
+        NSApp.windowsMenu = windows
     }
 }
