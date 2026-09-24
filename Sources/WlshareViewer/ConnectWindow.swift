@@ -11,19 +11,21 @@ import AppKit
 /// empty one and **−** deletes one. What is typed into the form is saved when
 /// the selection moves, on **Connect**, and when the window or the app closes.
 ///
-/// One form, as many desktops as have been opened from it: **Connect** puts it
-/// away and adds a window, never taking one away, and **File ▸ Connect…**
-/// brings it back beside whatever is open — clicked rather than typed, the
-/// desktop having every chord while it holds the keyboard.
+/// One library, as many desktops as have been opened from it: **Connect** adds
+/// a window and leaves this one where it is, never taking one away, and
+/// **Window ▸ Library** brings it forward from behind whatever is open —
+/// clicked rather than typed, the desktop having every chord while it holds
+/// the keyboard. It is the app's one such window, closed and reopened rather
+/// than made again, and it remembers its place.
 ///
 /// It is also where a session ends up — a refused or dropped connection brings
 /// this back with the reason on it, which desktop it is about, and the form as
 /// it was left, so there is somewhere to correct and retry.
 @MainActor
 final class ConnectWindow: NSObject, NSWindowDelegate, NSTableViewDataSource, NSTableViewDelegate {
-    /// Called with a destination that parsed and the profile it was saved as,
-    /// after the form has put itself away. Everything about the session is the
-    /// delegate's business.
+    /// Called with a destination that parsed and the profile it was saved as.
+    /// Everything about the session is the delegate's business; the library
+    /// stays where it is.
     var onConnect: ((Destination, UUID) -> Void)?
 
     private let profiles: ProfileStore
@@ -32,7 +34,7 @@ final class ConnectWindow: NSObject, NSWindowDelegate, NSTableViewDataSource, NS
 
     private let panel = NSWindow(
         contentRect: NSRect(x: 0, y: 0, width: 620, height: 300),
-        styleMask: [.titled, .closable],
+        styleMask: [.titled, .closable, .miniaturizable],
         backing: .buffered,
         defer: false
     )
@@ -133,8 +135,7 @@ final class ConnectWindow: NSObject, NSWindowDelegate, NSTableViewDataSource, NS
 
         let connect = NSButton(title: "Connect", target: self, action: #selector(self.connect))
         connect.keyEquivalent = "\r"
-        let quit = NSButton(title: "Quit", target: NSApp, action: #selector(NSApplication.terminate(_:)))
-        let buttons = NSStackView(views: [NSView(), quit, connect])
+        let buttons = NSStackView(views: [NSView(), connect])
         buttons.spacing = 12
 
         let details = NSStackView(views: [form, message, buttons])
@@ -162,11 +163,17 @@ final class ConnectWindow: NSObject, NSWindowDelegate, NSTableViewDataSource, NS
             stack.bottomAnchor.constraint(equalTo: content.bottomAnchor),
         ])
 
-        panel.title = "Connect to a Desktop"
+        panel.title = "Library"
         panel.contentView = content
         panel.isReleasedWhenClosed = false
         panel.delegate = self
-        panel.center()
+        // Where it was last left; the middle of the screen the first time. The
+        // height is the form's whatever was saved: `fit()` sets it on `show`.
+        // Forced, because a window that cannot be resized is otherwise not
+        // given its frame back at all.
+        if !(panel.setFrameAutosaveName("library") && panel.setFrameUsingName("library", force: true)) {
+            panel.center()
+        }
 
         select(profiles.selected.flatMap { profiles.profile($0) }?.id ?? profiles.profiles.first?.id)
         if current == nil { fill(Profile()) }
@@ -190,8 +197,8 @@ final class ConnectWindow: NSObject, NSWindowDelegate, NSTableViewDataSource, NS
         password.stringValue = destination.password
     }
 
-    /// Bring the form up as it was left, with `error` on it if this is the
-    /// second attempt at something.
+    /// Bring the library forward as it was left, with `error` on it if this is
+    /// the second attempt at something.
     func show(error: String? = nil) {
         message.stringValue = error ?? ""
         message.isHidden = error == nil
@@ -205,12 +212,6 @@ final class ConnectWindow: NSObject, NSWindowDelegate, NSTableViewDataSource, NS
             : saved || !password.stringValue.isEmpty ? table : password
         panel.makeFirstResponder(first)
         NSApp.activate(ignoringOtherApps: true)
-    }
-
-    /// Out of the way, not closed: a window that is merely hidden does not
-    /// count as the last one, so putting it away cannot quit the app.
-    func hide() {
-        panel.orderOut(nil)
     }
 
     /// Keep what is typed into the form, for an app about to quit. False when
@@ -317,7 +318,6 @@ final class ConnectWindow: NSObject, NSWindowDelegate, NSTableViewDataSource, NS
             fail(error.localizedDescription, self.password)
             return
         }
-        hide()
         onConnect?(profile.destination(password: password), profile.id)
     }
 

@@ -46,10 +46,12 @@ asked for as fatal.
 ## Where a session begins
 
 The app is packaged, so the destination cannot only be a command-line argument:
-`ConnectWindow` is the saved desktops as a list beside a form for the one
-selected — a name, the host, the port, the user name, the password — and it is
-what an app opened from the Finder starts at. `-server` on the command line
-skips it, which is what `scripts/run-macos.sh` and anything automated use.
+`ConnectWindow` is the library — the saved desktops as a list beside a form for
+the one selected, a name, the host, the port, the user name, the password — and
+it is what an app opened from the Finder starts at. There is one of it, made
+once and brought forward or closed, never made again, and it opens where it was
+last left. `-server` on the command line skips it, which is what
+`scripts/run-macos.sh` and anything automated use.
 
 Every connection made from the form is to a profile. **Connect** writes the form
 into the selected one, or makes a new one of it when none is selected, so the
@@ -89,26 +91,29 @@ password is ever typed.
 ## A desktop to a window
 
 A desktop opens in a window of its own and stays there: **Connect** adds a
-session beside whatever is already open, never in place of it, so several
-desktops stand side by side, each with its own socket, its own decoders and its
-own sound. `Session` is one of them — the window, the `Client` under it, the
+session in front of the library, never in place of it or of anything else
+open, so several desktops stand side by side, each with its own socket, its
+own decoders and its own sound, and the library stays where it is behind them.
+`Session` is one of them — the window, the `Client` under it, the
 `DesktopView` in it, the clipboard and the sound — and `AppDelegate` holds the
-list of them and the form they are started from. Nothing is shared but the
+list of them and the library they are started from. Nothing is shared but the
 saved desktops: the Mac's clipboard is offered to the one window that has just
 become the one in use, and the menu bar's **Window** lists what is open, for
 bringing one forward from the menu rather than by a chord the desktop would
-take.
+take. The library is listed there too, as **Window ▸ Library**, where a Mac app
+keeps its one window that is not a document: it is brought forward, not
+connected — connecting is the library's own button.
 
 A window is where its own session ends. Closing one ends that session and joins
 its thread while the window is still there for the callbacks to have reached,
 and closing the last one quits the app, as it does for any Mac app with nothing
-else on the screen. **Disconnect** closes the desktop in front — with the form
-up first when it is the only one — and **Connect…** brings the form back
-without touching what is open; both are clicked, their chords being the
-desktop's for as long as it holds the keyboard. A refused connection and a dropped one put
-the form up with the reason on it and which desktop it is about, and only then
-take that window away: in that order, because an app briefly down to no windows
-at all is an app that quits itself.
+else on the screen. **Disconnect** closes the desktop in front — with the
+library up first when it is the only one — and **Library** brings the library
+forward without touching what is open; both are clicked, their chords being
+the desktop's for as long as it holds the keyboard. A refused connection and a
+dropped one bring the library forward with the reason on it and which desktop
+it is about, and only then take that window away: in that order, because an
+app briefly down to no windows at all is an app that quits itself.
 
 A desktop opens where its window was last left, remembered under the profile it
 was connected from. A second window on the same profile cannot have that frame
@@ -257,7 +262,7 @@ window's views before the menu bar, so the view claims it in
 Only chords arrive there; a plain key, an Option chord, Return and Escape go
 straight to `keyDown`. What is left to the Mac is what the Mac keeps before the
 app is offered anything — ⌘Tab, ⌘Space, the screenshot chords — so Hide,
-Connect, Disconnect and Quit are clicked in the menu bar rather than typed for
+Library, Disconnect and Quit are clicked in the menu bar rather than typed for
 as long as the desktop holds the keyboard.
 
 RFB has no scroll event: a wheel notch is a press and release of one of four

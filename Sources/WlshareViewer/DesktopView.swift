@@ -399,8 +399,9 @@ final class DesktopView: MTKView {
         else { return }
         let down = event.modifierFlags.rawValue & mask != 0
         // Held like any other key, because the key-up may never come here:
-        // Command-N opens the connection panel, and the window that took the
-        // keyboard gets the release. What is held is what is let go of.
+        // a click on **Window ▸ Library** while Command is down puts another
+        // window in front, and the window that took the keyboard gets the
+        // release. What is held is what is let go of.
         if down {
             held[event.keyCode] = keysym
         } else {
