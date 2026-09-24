@@ -5,34 +5,43 @@ import AppKit
 /// password and the encoding — for someone who opened the app from the Finder
 /// and has no command line to put them on.
 ///
-/// Every connection made here is to a profile. **Connect** saves the form into
-/// the selected one first, and with nothing selected makes a new one of it, so
-/// a desktop connected to once is in the list from then on; **+** starts an
-/// empty one and **−** deletes one. What is typed into the form is saved when
-/// the selection moves, on **Connect**, and when the window or the app closes.
+/// Every connection made here is to a profile. Nothing is saved by itself:
+/// **Save** writes the form into the selected profile, or makes a new one of
+/// it when none is selected, and **Connect** does the same and then connects,
+/// so a desktop connected to once is in the list from then on. **+** clears
+/// the form for a new desktop, which is in the list only once it is saved, and
+/// **−** deletes one. Moving the selection, closing the window and quitting
+/// with something unsaved in the form ask whether to keep it, as a document
+/// would.
 ///
-/// One form, as many desktops as have been opened from it: **Connect** puts it
-/// away and adds a window, never taking one away, and **File ▸ Connect…**
-/// brings it back beside whatever is open — clicked rather than typed, the
-/// desktop having every chord while it holds the keyboard.
+/// One library, as many desktops as have been opened from it: **Connect** adds
+/// a window and leaves this one where it is, never taking one away, and
+/// **Window ▸ Library** brings it forward from behind whatever is open —
+/// clicked rather than typed, the desktop having every chord while it holds
+/// the keyboard. It is the app's one such window, closed and reopened rather
+/// than made again, and it remembers its place.
 ///
 /// It is also where a session ends up — a refused or dropped connection brings
 /// this back with the reason on it, which desktop it is about, and the form as
 /// it was left, so there is somewhere to correct and retry.
 @MainActor
-final class ConnectWindow: NSObject, NSWindowDelegate, NSTableViewDataSource, NSTableViewDelegate {
-    /// Called with a destination that parsed and the profile it was saved as,
-    /// after the form has put itself away. Everything about the session is the
-    /// delegate's business.
+final class ConnectWindow: NSObject, NSWindowDelegate, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate {
+    /// Called with a destination that parsed and the profile it was saved as.
+    /// Everything about the session is the delegate's business; the library
+    /// stays where it is.
     var onConnect: ((Destination, UUID) -> Void)?
 
     private let profiles: ProfileStore
     /// The profile the form is showing; nil for a desktop not saved yet.
     private var current: UUID?
+    /// Whether the window has been on the screen. A form nobody has seen
+    /// holds nothing anybody typed: a command-line launch fills it in case
+    /// the connection is refused, and quitting must not ask to save that.
+    private var presented = false
 
     private let panel = NSWindow(
         contentRect: NSRect(x: 0, y: 0, width: 620, height: 300),
-        styleMask: [.titled, .closable],
+        styleMask: [.titled, .closable, .miniaturizable],
         backing: .buffered,
         defer: false
     )
@@ -53,6 +62,7 @@ final class ConnectWindow: NSObject, NSWindowDelegate, NSTableViewDataSource, NS
     private let savesPassword = NSButton(checkboxWithTitle: "Save the password", target: nil, action: nil)
     private let audio = NSButton(checkboxWithTitle: "Play the desktop's sound", target: nil, action: nil)
     private let message = NSTextField(wrappingLabelWithString: "")
+    private let save = NSButton(title: "Save", target: nil, action: nil)
     private var form: NSGridView!
 
     init(profiles: ProfileStore) {
@@ -104,6 +114,11 @@ final class ConnectWindow: NSObject, NSWindowDelegate, NSTableViewDataSource, NS
             // declared further down this initialiser.
             field.target = self
             field.action = #selector(self.connect)
+            field.delegate = self
+        }
+        for control in [savesPassword, audio, encoding] as [NSControl] {
+            control.target = self
+            control.action = #selector(edited)
         }
 
         for (index, (_, title)) in Self.encodings.enumerated() {
@@ -133,8 +148,9 @@ final class ConnectWindow: NSObject, NSWindowDelegate, NSTableViewDataSource, NS
 
         let connect = NSButton(title: "Connect", target: self, action: #selector(self.connect))
         connect.keyEquivalent = "\r"
-        let quit = NSButton(title: "Quit", target: NSApp, action: #selector(NSApplication.terminate(_:)))
-        let buttons = NSStackView(views: [NSView(), quit, connect])
+        save.target = self
+        save.action = #selector(saveClicked)
+        let buttons = NSStackView(views: [NSView(), save, connect])
         buttons.spacing = 12
 
         let details = NSStackView(views: [form, message, buttons])
@@ -162,11 +178,17 @@ final class ConnectWindow: NSObject, NSWindowDelegate, NSTableViewDataSource, NS
             stack.bottomAnchor.constraint(equalTo: content.bottomAnchor),
         ])
 
-        panel.title = "Connect to a Desktop"
+        panel.title = "Library"
         panel.contentView = content
         panel.isReleasedWhenClosed = false
         panel.delegate = self
-        panel.center()
+        // Where it was last left; the middle of the screen the first time. The
+        // height is the form's whatever was saved: `fit()` sets it on `show`.
+        // Forced, because a window that cannot be resized is otherwise not
+        // given its frame back at all.
+        if !(panel.setFrameAutosaveName("library") && panel.setFrameUsingName("library", force: true)) {
+            panel.center()
+        }
 
         select(profiles.selected.flatMap { profiles.profile($0) }?.id ?? profiles.profiles.first?.id)
         if current == nil { fill(Profile()) }
@@ -181,22 +203,23 @@ final class ConnectWindow: NSObject, NSWindowDelegate, NSTableViewDataSource, NS
     /// saved yet. A connection refused brings this back as it was tried —
     /// with the command line's sound and encoding, not the profile's.
     func load(_ destination: Destination, profile: UUID?) {
-        commit()
         select(profile)
         var tried = profile.flatMap { profiles.profile($0) } ?? Profile(destination)
         tried.audio = destination.audio
         tried.encoding = destination.encoding
         fill(tried)
         password.stringValue = destination.password
+        edited()
     }
 
-    /// Bring the form up as it was left, with `error` on it if this is the
-    /// second attempt at something.
+    /// Bring the library forward as it was left, with `error` on it if this is
+    /// the second attempt at something.
     func show(error: String? = nil) {
         message.stringValue = error ?? ""
         message.isHidden = error == nil
         fit()
 
+        presented = true
         panel.makeKeyAndOrderFront(nil)
         // Where typing should start: a saved desktop usually wants only the
         // password, or nothing at all.
@@ -207,26 +230,55 @@ final class ConnectWindow: NSObject, NSWindowDelegate, NSTableViewDataSource, NS
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    /// Out of the way, not closed: a window that is merely hidden does not
-    /// count as the last one, so putting it away cannot quit the app.
-    func hide() {
-        panel.orderOut(nil)
-    }
-
-    /// Keep what is typed into the form, for an app about to quit. False when
-    /// it cannot be kept, with the form up and the reason on it.
-    func save() -> Bool {
-        guard commit() else {
+    /// Nothing unsaved left in the form, for an app about to quit — having
+    /// asked, when there was and the form had been seen. False when the
+    /// answer was to stay, or the edit could not be saved: the window is up
+    /// with the reason on it.
+    func settle() -> Bool {
+        guard !presented || askAboutEdits() else {
             panel.makeKeyAndOrderFront(nil)
             return false
         }
         return true
     }
 
-    /// Closing keeps what is typed, and a port that is not one or a password
-    /// that will not seal keeps the window open with the reason on it.
+    /// Closing with something unsaved asks first, and a port that is not one
+    /// or a password that will not seal keeps the window open with the reason.
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        commit()
+        askAboutEdits()
+    }
+
+    /// Whether the form differs from what is saved: the selected profile, or
+    /// nothing for a desktop not saved yet. A typed password counts only when
+    /// it would be kept.
+    private var edits: Bool {
+        let stored = current.flatMap { profiles.profile($0) } ?? Profile()
+        guard let draft = draft(over: stored) else { return true }
+        return draft != stored || (draft.savesPassword && !password.stringValue.isEmpty)
+    }
+
+    /// Ask what to do with unsaved edits, when there are any: true once the
+    /// form holds nothing that is not saved or let go of, false to stay put.
+    /// Letting go puts the form back as it is saved, so what was typed does
+    /// not come back with the window.
+    private func askAboutEdits() -> Bool {
+        guard edits else { return true }
+        let stored = current.flatMap { profiles.profile($0) }
+        let alert = NSAlert()
+        alert.messageText = stored.map { "Save the changes to “\($0.title)”?" } ?? "Save this desktop?"
+        alert.informativeText = "What is typed into the form is lost otherwise."
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Don't Save")
+        alert.addButton(withTitle: "Cancel")
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            return commit()
+        case .alertSecondButtonReturn:
+            fill(stored ?? Profile())
+            return true
+        default:
+            return false
+        }
     }
 
     // MARK: - The form
@@ -247,26 +299,26 @@ final class ConnectWindow: NSObject, NSWindowDelegate, NSTableViewDataSource, NS
         message.isHidden = true
         fit()
         remove.isEnabled = current != nil
+        edited()
     }
 
-    /// Write the form into the profile it is showing — or, with `creating`,
-    /// into a new one when it is showing none. False, with the reason on the
-    /// form, when the port is not a port or the password would not seal.
-    @discardableResult
-    private func commit(creating: Bool = false) -> Bool {
+    /// Something in the form changed: **Save** is offered while it differs
+    /// from what is saved.
+    @objc private func edited() {
+        save.isEnabled = edits
+    }
+
+    func controlTextDidChange(_ notification: Notification) {
+        edited()
+    }
+
+    /// The form as a profile over `stored` — its id, and its sealed password
+    /// while the checkbox says to keep one — or nil when the port is not a
+    /// port. What is typed into the password field is not sealed here.
+    private func draft(over stored: Profile) -> Profile? {
         let text = port.stringValue.trimmingCharacters(in: .whitespaces)
-        guard let port = text.isEmpty ? 5900 : UInt16(text), port > 0 else {
-            fail("A port is a number from 1 to 65535.", self.port)
-            return false
-        }
-        var profile: Profile
-        if let current, let saved = profiles.profile(current) {
-            profile = saved
-        } else if creating {
-            profile = Profile()
-        } else {
-            return true
-        }
+        guard let port = text.isEmpty ? 5900 : UInt16(text), port > 0 else { return nil }
+        var profile = stored
         profile.name = name.stringValue.trimmingCharacters(in: .whitespaces)
         profile.host = host.stringValue.trimmingCharacters(in: .whitespaces)
         profile.port = port
@@ -274,15 +326,33 @@ final class ConnectWindow: NSObject, NSWindowDelegate, NSTableViewDataSource, NS
         profile.audio = audio.state == .on
         profile.encoding = Self.encodings[max(encoding.selectedTag(), 0)].0
         profile.savesPassword = savesPassword.state == .on
-        if !profile.savesPassword {
-            profile.sealedPassword = nil
-        } else if !password.stringValue.isEmpty {
+        if !profile.savesPassword { profile.sealedPassword = nil }
+        return profile
+    }
+
+    /// Write the form into the profile it is showing, or into a new one when
+    /// it is showing none. False, with the reason on the form, when there is
+    /// no host, the port is not a port or the password would not seal.
+    @discardableResult
+    private func commit() -> Bool {
+        guard !host.stringValue.trimmingCharacters(in: .whitespaces).isEmpty else {
+            fail("A host is needed.", host)
+            return false
+        }
+        let stored = current.flatMap { profiles.profile($0) } ?? Profile()
+        guard var profile = draft(over: stored) else {
+            fail("A port is a number from 1 to 65535.", self.port)
+            return false
+        }
+        if profile.savesPassword, !password.stringValue.isEmpty {
             do {
                 profile.sealedPassword = try SafeStorage.seal(password.stringValue, for: profile.id)
             } catch {
                 fail(error.localizedDescription, password)
                 return false
             }
+            // Saved now, and shown as saved rather than left typed.
+            password.stringValue = ""
         }
         profiles.put(profile)
         if current == nil {
@@ -295,21 +365,26 @@ final class ConnectWindow: NSObject, NSWindowDelegate, NSTableViewDataSource, NS
         }
         password.placeholderString = profile.sealedPassword == nil ? "none" : "saved"
         remove.isEnabled = true
+        message.isHidden = true
+        fit()
+        edited()
         return true
     }
 
+    /// **Save**: the form into its profile, and nothing else.
+    @objc private func saveClicked() {
+        commit()
+    }
+
     @objc private func connect() {
-        guard !host.stringValue.trimmingCharacters(in: .whitespaces).isEmpty else {
-            fail("A host is needed.", host)
-            return
-        }
-        // Taken before the commit, which drops it when the checkbox is off.
+        // Both taken before the commit, which drops the saved one when the
+        // checkbox is off and clears the field once the typed one is sealed.
         let saved = current.flatMap { profiles.profile($0) }?.sealedPassword
-        guard commit(creating: true), let current, let profile = profiles.profile(current) else { return }
+        let typed = password.stringValue
+        guard commit(), let current, let profile = profiles.profile(current) else { return }
         // What is typed wins; with nothing typed, what is saved. A password
         // saved and no longer wanted is still the one to connect with this
         // once, as it was when the checkbox was unticked.
-        let typed = password.stringValue
         let password: String
         do {
             password = try typed.isEmpty ? saved.map { try SafeStorage.open($0, for: profile.id) } ?? "" : typed
@@ -317,7 +392,6 @@ final class ConnectWindow: NSObject, NSWindowDelegate, NSTableViewDataSource, NS
             fail(error.localizedDescription, self.password)
             return
         }
-        hide()
         onConnect?(profile.destination(password: password), profile.id)
     }
 
@@ -346,13 +420,13 @@ final class ConnectWindow: NSObject, NSWindowDelegate, NSTableViewDataSource, NS
 
     // MARK: - The list
 
+    /// Clear the form for a desktop not saved yet. It joins the list on
+    /// **Save** or **Connect**, not before; something unsaved already in the
+    /// form is asked about first.
     @objc private func addProfile() {
-        // A desktop typed in but not saved yet is kept, not dropped.
-        guard commit(creating: !host.stringValue.trimmingCharacters(in: .whitespaces).isEmpty) else { return }
-        let profile = Profile()
-        profiles.put(profile)
-        table.reloadData()
-        select(profile.id)
+        guard askAboutEdits() else { return }
+        select(nil)
+        fill(Profile())
         panel.makeFirstResponder(host)
     }
 
@@ -402,10 +476,10 @@ final class ConnectWindow: NSObject, NSWindowDelegate, NSTableViewDataSource, NS
         return cell
     }
 
-    /// Moving off a profile saves what was typed into it, and a port that is
-    /// not one keeps the selection where it is until it is put right.
+    /// Moving off a profile with something unsaved typed into it asks first,
+    /// and staying is staying: the selection does not move.
     func selectionShouldChange(in tableView: NSTableView) -> Bool {
-        commit()
+        askAboutEdits()
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {

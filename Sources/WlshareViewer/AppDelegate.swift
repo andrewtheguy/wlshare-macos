@@ -1,20 +1,21 @@
 import AppKit
 import Metal
 
-/// The connect form and the desktops opened from it.
+/// The library and the desktops opened from it.
 ///
 /// Every connection is a `Session` of its own — its own window, its own
 /// socket, its own sound — and the app keeps as many as have been opened.
-/// **Connect** adds one; it never takes one away. Everything that is about a
-/// desktop is in `Session` and `DesktopView`; everything about the wire is in
-/// the Rust core.
+/// **Connect** adds one beside the library, which stays where it is; it never
+/// takes one away. There is one library window, brought forward rather than
+/// made again. Everything that is about a desktop is in `Session` and
+/// `DesktopView`; everything about the wire is in the Rust core.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var device: MTLDevice?
     /// The sessions on the screen, oldest first.
     private var sessions: [Session] = []
     private let profiles = ProfileStore()
-    private lazy var form = ConnectWindow(profiles: profiles)
+    private lazy var library = ConnectWindow(profiles: profiles)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard let device = MTLCreateSystemDefaultDevice() else {
@@ -22,7 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         self.device = device
 
-        form.onConnect = { [weak self] destination, profile in self?.open(destination, profile: profile) }
+        library.onConnect = { [weak self] destination, profile in self?.open(destination, profile: profile) }
 
         makeMenu()
         // The moments a desktop window becomes the one in use, which is when
@@ -40,10 +41,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             do {
                 destination.password = try profile?.password() ?? ""
             } catch {
-                form.load(destination, profile: profile?.id)
+                library.load(destination, profile: profile?.id)
                 return ask(error: error.localizedDescription)
             }
-            form.load(destination, profile: profile?.id)
+            library.load(destination, profile: profile?.id)
             open(destination, profile: profile?.id)
             NSApp.activate(ignoringOtherApps: true)
         } else {
@@ -55,10 +56,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         true
     }
 
-    /// Not while the form holds something that cannot be saved: it stays up
-    /// with the reason, as it does when its own window is closed.
+    /// Not while the library holds something unsaved that is neither kept nor
+    /// let go of: it asks, and stays up with the reason when the answer was to
+    /// keep it and it cannot be — as it does when its own window is closed.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        form.save() ? .terminateNow : .terminateCancel
+        library.settle() ? .terminateNow : .terminateCancel
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -76,9 +78,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard let device else { return }
         let session = Session(destination: destination, profile: profile, device: device)
         session.onClosed = { [weak self] session, reason in
-            // The form first, with which desktop it is about, and only then the
-            // window away — in that order, because an app briefly down to no
-            // windows at all is an app that quits itself.
+            // The library first, with which desktop it is about, and only then
+            // the window away — in that order, because an app briefly down to
+            // no windows at all is an app that quits itself.
             self?.ask(error: "\(session.destination.label): \(reason)")
             session.end()
         }
@@ -106,14 +108,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func ask(error: String? = nil) {
-        form.show(error: error)
+        library.show(error: error)
     }
 
-    @objc private func askWhereToConnect() {
+    /// **Window ▸ Library**: the one library window, forward.
+    @objc private func showLibrary() {
         ask()
     }
 
-    /// Close the desktop in front. With nothing else on the screen the form
+    /// Close the desktop in front. With nothing else on the screen the library
     /// goes up first, so the app is never down to no windows at all.
     @objc private func disconnect() {
         guard let session = sessions.first(where: { $0.window.isKeyWindow }) else { return }
@@ -122,7 +125,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     /// **Disconnect** is about the desktop in front, and there is not always
-    /// one: the form may be what has the keyboard.
+    /// one: the library may be what has the keyboard.
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         guard item.action == #selector(disconnect) else { return true }
         return sessions.contains { $0.window.isKeyWindow }
@@ -131,7 +134,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// The smallest menu that makes the app behave like one, and the app's
     /// only way in once the desktop has the keyboard: the view claims every
     /// chord while it is first responder, so these items are clicked rather
-    /// than typed until the form is the window in use.
+    /// than typed until the library is the window in use.
     private func makeMenu() {
         let root = NSMenu()
 
@@ -141,13 +144,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         app.addItem(withTitle: "Quit WlshareViewer", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
 
         let file = NSMenu(title: "File")
-        file.addItem(withTitle: "Connect…", action: #selector(askWhereToConnect), keyEquivalent: "n")
         file.addItem(withTitle: "Disconnect", action: #selector(disconnect), keyEquivalent: "d")
         for item in file.items { item.target = self }
 
-        // The connection form's fields take ⌘C and the rest only through this
-        // menu: a text field has no key equivalents of its own. The items have
-        // no target, so they go to whatever has the keyboard.
+        // The library's fields take ⌘C and the rest only through this menu: a
+        // text field has no key equivalents of its own. The items have no
+        // target, so they go to whatever has the keyboard.
         let edit = NSMenu(title: "Edit")
         edit.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
         edit.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
@@ -160,10 +162,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
         // Several desktops at once need a way between them: AppKit keeps the
         // open windows listed under this one, to be clicked like the rest of
-        // the menu bar while a desktop holds the keyboard.
+        // the menu bar while a desktop holds the keyboard. The library is the
+        // app's one window that is not a desktop, and this is where a Mac app
+        // keeps such a window: it is brought forward from here, not connected.
         let windows = NSMenu(title: "Window")
         windows.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
         windows.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
+        windows.addItem(.separator())
+        windows.addItem(withTitle: "Library", action: #selector(showLibrary), keyEquivalent: "l").target = self
         windows.addItem(.separator())
 
         for menu in [app, file, edit, windows] {
