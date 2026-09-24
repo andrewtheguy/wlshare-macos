@@ -29,7 +29,7 @@ targets:
         # Assets.xcassets is picked up with the sources; its AppIcon set is
         # generated from icon/AppIcon.svg by scripts/make-icon.sh.
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        MARKETING_VERSION: "0.0.16"
+        MARKETING_VERSION: "0.0.17"
         CURRENT_PROJECT_VERSION: "14"
         # The bridging header is the whole of what Swift knows about the core.
         SWIFT_OBJC_BRIDGING_HEADER: Sources/WlshareViewer/Bridging-Header.h
