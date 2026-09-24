@@ -56,10 +56,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         true
     }
 
-    /// Not while the library holds something that cannot be saved: it stays
-    /// up with the reason, as it does when its own window is closed.
+    /// Not while the library holds something unsaved that is neither kept nor
+    /// let go of: it asks, and stays up with the reason when the answer was to
+    /// keep it and it cannot be — as it does when its own window is closed.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        library.save() ? .terminateNow : .terminateCancel
+        library.settle() ? .terminateNow : .terminateCancel
     }
 
     func applicationWillTerminate(_ notification: Notification) {

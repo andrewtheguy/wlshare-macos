@@ -53,10 +53,13 @@ once and brought forward or closed, never made again, and it opens where it was
 last left. `-server` on the command line skips it, which is what
 `scripts/run-macos.sh` and anything automated use.
 
-Every connection made from the form is to a profile. **Connect** writes the form
-into the selected one, or makes a new one of it when none is selected, so the
-list is the history too; the form is also written back when the selection
-moves, when the window closes and when the app quits. A row is two lines of
+Every connection made from the form is to a profile. Nothing is written by
+itself: **Save** writes the form into the selected one, or makes a new one of
+it when none is selected, and **Connect** does the same before connecting, so
+the list is the history too. **Save** is offered only while the form differs
+from what is stored, and moving the selection, closing the window or quitting
+with an unsaved edit asks whether to keep it, the way a document does. A new
+desktop from **+** is only a cleared form until it is saved. A row is two lines of
 text, the name and who goes where, and nothing is captured from the desktop to
 put beside it. The profiles, and which one was showing, are a JSON array in the
 app's defaults, under keys that are deliberately not argument names: those are

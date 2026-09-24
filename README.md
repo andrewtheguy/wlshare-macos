@@ -74,10 +74,13 @@ scripts/package-mac.sh   # dist/package/WlshareViewer-macos-arm64.dmg
 Opening the app — from the Finder, from the Dock, from `open` — puts up the
 **Library**: the saved desktops as a list, and beside it a form for the one
 selected — a name, the host, the port, the user name, the password, the
-encoding and the sound. **Connect** (or a double-click on the row) saves the
-form into that profile and connects; with nothing in the list yet it makes the
-first one of what you typed. **+** starts a new desktop and **−** deletes the
-selected one. A row is its name and where it goes — there is no picture of the
+encoding and the sound. Nothing is saved until you say so: **Save** writes the
+form into that profile, and **Connect** (or a double-click on the row) does the
+same and connects; with nothing selected either makes a new profile of what
+you typed. **+** clears the form for a new desktop, which joins the list once
+it is saved or connected, and **−** deletes the selected one. Moving to another
+row, closing the window or quitting with something unsaved asks whether to
+keep it. A row is its name and where it goes — there is no picture of the
 desktop.
 
 Each desktop opens in a window of its own, in front of the library, which stays
