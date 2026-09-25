@@ -34,7 +34,7 @@ struct Destination: Equatable {
     /// The password is not one of the words, and deliberately: an argument list
     /// is in the shell's history and in everyone's `ps`. A saved one comes from
     /// the profile that goes to the same place as the same user; anything else
-    /// is typed into the form, which is what a refused connection brings back.
+    /// is typed into the form.
     static func fromArguments() -> Destination? {
         let defaults = UserDefaults.standard
         guard let server = defaults.string(forKey: "server") else { return nil }

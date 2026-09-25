@@ -7,7 +7,9 @@ import Metal
 /// socket, its own sound — and the app keeps as many as have been opened.
 /// **Connect** adds one beside the library, which stays where it is; it never
 /// takes one away. There is one library window, brought forward rather than
-/// made again. Everything that is about a desktop is in `Session` and
+/// made again. A desktop's window is only ever that desktop's: a connection
+/// that is refused or drops says so in it, and it stays until it is closed.
+/// Everything that is about a desktop is in `Session` and
 /// `DesktopView`; everything about the wire is in the Rust core.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
@@ -77,13 +79,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func open(_ destination: Destination, profile: UUID?) {
         guard let device else { return }
         let session = Session(destination: destination, profile: profile, device: device)
-        session.onClosed = { [weak self] session, reason in
-            // The library first, with which desktop it is about, and only then
-            // the window away — in that order, because an app briefly down to
-            // no windows at all is an app that quits itself.
-            self?.ask(error: "\(session.destination.label): \(reason)")
-            session.end()
-        }
         session.onEnded = { [weak self] session in
             self?.sessions.removeAll { $0 === session }
         }

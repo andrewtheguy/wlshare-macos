@@ -13,6 +13,11 @@ import Metal
 /// window's size before the first frame rather than after it. It ends when the
 /// window closes, and the client's thread is joined while the window is still
 /// there for its callbacks to have reached.
+///
+/// A connection refused or dropped ends the session but not the window: the
+/// desktop goes, and the reason stays in its place until the window is closed.
+/// The window is only ever this desktop's — never the library, and never
+/// another connection.
 @MainActor
 final class Session: NSObject, NSWindowDelegate {
     /// Where this one went, for its title and for saying which desktop a
@@ -26,10 +31,6 @@ final class Session: NSObject, NSWindowDelegate {
     private var audio: AudioOutput?
     private let banner = NSTextField(labelWithString: "")
 
-    /// The connection ended by itself — refused, or dropped — with the reason.
-    /// The session is still whole when this is called; ending it is the
-    /// delegate's, which has somewhere to put the reason first.
-    var onClosed: ((Session, String) -> Void)?
     /// The session is over and its window gone, by whatever hand. The delegate
     /// holds the only reference left, and this is where it lets go.
     var onEnded: ((Session) -> Void)?
@@ -107,9 +108,8 @@ final class Session: NSObject, NSWindowDelegate {
     }
 
     /// Put the window on the screen with the desktop ready for the keyboard,
-    /// and start listening to the session. Called once the delegate has been
-    /// given its callbacks, so a connection refused before that has somewhere
-    /// to be reported.
+    /// and start listening to the session — once the window is up, so a
+    /// connection refused before then still has it to be reported in.
     func show() {
         client?.onChange = { [weak self] in self?.changed() }
         window.makeKeyAndOrderFront(nil)
@@ -117,9 +117,9 @@ final class Session: NSObject, NSWindowDelegate {
         changed()
     }
 
-    /// Put the session and its window away — for the app, which has already
-    /// brought the form up. The person closing the window takes the other
-    /// path, through `windowWillClose`.
+    /// Put the session and its window away — for the app's **Disconnect**. The
+    /// person closing the window takes the other path, through
+    /// `windowWillClose`.
     func end() {
         // The delegate goes first: the window is not closed here, and nothing
         // should come back through it after this.
@@ -167,7 +167,29 @@ final class Session: NSObject, NSWindowDelegate {
         audio?.stop()
         audio = nil
         client = nil
-        banner.removeFromSuperview()
+    }
+
+    /// The connection ended by itself — refused, or dropped. The session goes,
+    /// the view with it, since it holds the client too; the window stays, with
+    /// the reason where the desktop was, until it is closed.
+    private func ended(_ reason: String) {
+        stop()
+        view = nil
+        let blank = NSView()
+        blank.wantsLayer = true
+        blank.layer?.backgroundColor = NSColor.black.cgColor
+        window.contentView = blank
+        banner.stringValue = "Disconnected from \(destination.label)\n\(reason)"
+        banner.maximumNumberOfLines = 0
+        banner.lineBreakMode = .byWordWrapping
+        banner.isHidden = false
+        blank.addSubview(banner)
+        NSLayoutConstraint.activate([
+            banner.centerXAnchor.constraint(equalTo: blank.centerXAnchor),
+            banner.centerYAnchor.constraint(equalTo: blank.centerYAnchor),
+            banner.widthAnchor.constraint(lessThanOrEqualTo: blank.widthAnchor, constant: -40),
+        ])
+        window.title = "\(destination.label) — disconnected"
     }
 
     /// The session has something new: a frame, a size, a state. Called on the
@@ -190,7 +212,7 @@ final class Session: NSObject, NSWindowDelegate {
                 audio = AudioOutput(client: client)
             }
         case .closed:
-            onClosed?(self, status.error ?? "The connection closed.")
+            ended(status.error ?? "The connection closed.")
             return
         }
         banner.isHidden = banner.stringValue.isEmpty

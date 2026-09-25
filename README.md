@@ -96,8 +96,8 @@ command line, cascades off the one before it instead.
 The password is saved only for a profile whose **Save the password** is ticked,
 and then sealed: see [Saved passwords](#saved-passwords). **Disconnect**
 closes the desktop in front, closing the last window — the library or a
-desktop — quits the app, and a connection that is refused or drops brings the
-library forward with the reason on it and which desktop it is about.
+desktop — quits the app, and a connection that is refused or drops says why in
+its own window, which stays open until it is closed.
 
 An empty password asks for the `None` security type; anything else asks for
 RSA-AES, which is the only type this client authenticates with — and the one
@@ -123,8 +123,8 @@ WlshareViewer.app/Contents/MacOS/WlshareViewer -server host:port -username me -a
 
 There is no password argument, deliberately: an argument list is in the shell's
 history and in everyone's `ps`. A password saved in a profile for the same
-host, port and user name is used, and anything else is typed into the form —
-which is what a connection refused for want of one brings back.
+host, port and user name is used, and anything else is typed into the form,
+which **Window ▸ Library** opens filled with what was tried.
 
 ### Saved passwords
 

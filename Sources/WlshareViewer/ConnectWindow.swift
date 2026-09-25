@@ -10,7 +10,8 @@ import AppKit
 /// it when none is selected, and **Connect** does the same and then connects,
 /// so a desktop connected to once is in the list from then on. **+** clears
 /// the form for a new desktop, which is in the list only once it is saved, and
-/// **−** deletes one. Moving the selection, closing the window and quitting
+/// **−** deletes one, and a row dragged up or down the list stays where it is
+/// dropped. Moving the selection, closing the window and quitting
 /// with something unsaved in the form ask whether to keep it, as a document
 /// would.
 ///
@@ -21,9 +22,9 @@ import AppKit
 /// the keyboard. It is the app's one such window, closed and reopened rather
 /// than made again, and it remembers its place.
 ///
-/// It is also where a session ends up — a refused or dropped connection brings
-/// this back with the reason on it, which desktop it is about, and the form as
-/// it was left, so there is somewhere to correct and retry.
+/// It never shows a desktop's own trouble: a refused or dropped connection says
+/// so in that desktop's window. What it shows is its own — a saved password
+/// that will not open, a port that is not one.
 @MainActor
 final class ConnectWindow: NSObject, NSWindowDelegate, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate {
     /// Called with a destination that parsed and the profile it was saved as.
@@ -35,8 +36,8 @@ final class ConnectWindow: NSObject, NSWindowDelegate, NSTableViewDataSource, NS
     /// The profile the form is showing; nil for a desktop not saved yet.
     private var current: UUID?
     /// Whether the window has been on the screen. A form nobody has seen
-    /// holds nothing anybody typed: a command-line launch fills it in case
-    /// the connection is refused, and quitting must not ask to save that.
+    /// holds nothing anybody typed: a command-line launch fills it with what
+    /// it tried, and quitting must not ask to save that.
     private var presented = false
 
     private let panel = NSWindow(
@@ -80,6 +81,10 @@ final class ConnectWindow: NSObject, NSWindowDelegate, NSTableViewDataSource, NS
         table.delegate = self
         table.target = self
         table.doubleAction = #selector(connectClicked)
+        // Rows are dragged to reorder them, within this list and nowhere else.
+        table.registerForDraggedTypes([Self.dragged])
+        table.setDraggingSourceOperationMask(.move, forLocal: true)
+        table.draggingDestinationFeedbackStyle = .gap
         let scroll = NSScrollView()
         scroll.documentView = table
         scroll.hasVerticalScroller = true
@@ -200,8 +205,8 @@ final class ConnectWindow: NSObject, NSWindowDelegate, NSTableViewDataSource, NS
 
     /// Fill the form with a destination from the command line, before it is
     /// ever shown: the profile it matched if there is one, or a desktop not
-    /// saved yet. A connection refused brings this back as it was tried —
-    /// with the command line's sound and encoding, not the profile's.
+    /// saved yet, as it was tried — with the command line's sound and
+    /// encoding, not the profile's — for **Window ▸ Library** to retry from.
     func load(_ destination: Destination, profile: UUID?) {
         select(profile)
         var tried = profile.flatMap { profiles.profile($0) } ?? Profile(destination)
@@ -212,8 +217,8 @@ final class ConnectWindow: NSObject, NSWindowDelegate, NSTableViewDataSource, NS
         edited()
     }
 
-    /// Bring the library forward as it was left, with `error` on it if this is
-    /// the second attempt at something.
+    /// Bring the library forward as it was left, with `error` on it when the
+    /// form's own contents could not be used.
     func show(error: String? = nil) {
         message.stringValue = error ?? ""
         message.isHidden = error == nil
@@ -468,6 +473,34 @@ final class ConnectWindow: NSObject, NSWindowDelegate, NSTableViewDataSource, NS
 
     func numberOfRows(in tableView: NSTableView) -> Int {
         profiles.profiles.count
+    }
+
+    /// What a dragged row carries: the id of its profile.
+    private static let dragged = NSPasteboard.PasteboardType("dev.andrewtheguy.wlshareviewer.profile")
+
+    func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
+        let item = NSPasteboardItem()
+        item.setString(profiles.profiles[row].id.uuidString, forType: Self.dragged)
+        return item
+    }
+
+    /// A row goes between rows, never onto one, and only from this list.
+    func tableView(_ tableView: NSTableView, validateDrop info: NSDraggingInfo, proposedRow row: Int, proposedDropOperation dropOperation: NSTableView.DropOperation) -> NSDragOperation {
+        guard info.draggingSource as? NSTableView === table else { return [] }
+        if dropOperation == .on { tableView.setDropRow(row, dropOperation: .above) }
+        return .move
+    }
+
+    /// The profile moved to where it was dropped, the selection going with it.
+    func tableView(_ tableView: NSTableView, acceptDrop info: NSDraggingInfo, row: Int, dropOperation: NSTableView.DropOperation) -> Bool {
+        guard let text = info.draggingPasteboard.string(forType: Self.dragged), let id = UUID(uuidString: text),
+              let from = profiles.index(of: id) else { return false }
+        // `row` counts the dragged row where it still is.
+        let to = row > from ? row - 1 : row
+        guard to != from else { return false }
+        profiles.move(id, to: to)
+        table.moveRow(at: from, to: to)
+        return true
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
