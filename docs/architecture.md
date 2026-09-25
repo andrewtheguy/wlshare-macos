@@ -59,7 +59,8 @@ it when none is selected, and **Connect** does the same before connecting, so
 the list is the history too. **Save** is offered only while the form differs
 from what is stored, and moving the selection, closing the window or quitting
 with an unsaved edit asks whether to keep it, the way a document does. A new
-desktop from **+** is only a cleared form until it is saved. A row is two lines of
+desktop from **+** is only a cleared form until it is saved. The list is in the
+order the rows are dragged into, a new desktop joining at the bottom. A row is two lines of
 text, the name and who goes where, and nothing is captured from the desktop to
 put beside it. The profiles, and which one was showing, are a JSON array in the
 app's defaults, under keys that are deliberately not argument names: those are
@@ -88,8 +89,9 @@ form and not a connection attempted without it.
 The password is not an argument name, because an argument list is in the shell's
 history and in everyone's `ps`. A `-server` launch takes the password saved in
 the first profile with the same host, port and user name, and a destination with
-none — or one that is refused — ends up at the form, which is the only place a
-password is ever typed.
+none is typed into the form, which is the only place a password is ever typed:
+a refused one says so in the desktop's window, and **Window ▸ Library** has the
+form filled with what was tried.
 
 ## A desktop to a window
 
@@ -114,9 +116,10 @@ else on the screen. **Disconnect** closes the desktop in front — with the
 library up first when it is the only one — and **Library** brings the library
 forward without touching what is open; both are clicked, their chords being
 the desktop's for as long as it holds the keyboard. A refused connection and a
-dropped one bring the library forward with the reason on it and which desktop
-it is about, and only then take that window away: in that order, because an
-app briefly down to no windows at all is an app that quits itself.
+dropped one end the session but not the window: the desktop is replaced by the
+reason, and the window stays until it is closed. A desktop's window is only
+ever that desktop's and the library only ever the library — neither turns into
+the other, and the library is not brought forward for a desktop's trouble.
 
 A desktop opens where its window was last left, remembered under the profile it
 was connected from. A second window on the same profile cannot have that frame

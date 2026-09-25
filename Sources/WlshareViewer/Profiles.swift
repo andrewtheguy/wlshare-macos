@@ -56,8 +56,8 @@ extension Profile {
     }
 }
 
-/// The saved profiles, in the order they were made, and which one the form was
-/// last showing.
+/// The saved profiles, in the order the list shows them, and which one the form
+/// was last showing.
 ///
 /// A `defaults` plist is a file, and that is all right here: the only secret in
 /// a profile is sealed, and the key that opens it is in the keychain.
@@ -99,6 +99,13 @@ final class ProfileStore {
         } else {
             profiles.append(profile)
         }
+        write()
+    }
+
+    /// Put `id` at `index` in the list, the rest keeping their order.
+    func move(_ id: UUID, to index: Int) {
+        guard let from = self.index(of: id) else { return }
+        profiles.insert(profiles.remove(at: from), at: index)
         write()
     }
 
